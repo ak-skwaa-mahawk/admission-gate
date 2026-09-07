@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Audit log verification CLI."""
 
+import argparse
 import hashlib
 import json
 import sys
@@ -45,9 +46,19 @@ def verify_log(log_path: str) -> Tuple[bool, int, str]:
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "audit_log.jsonl"
+    parser = argparse.ArgumentParser(
+        description="Verify SHA-256 hash-chain integrity of an admission-gate audit log."
+    )
+    parser.add_argument(
+        "log_path",
+        nargs="?",
+        default="audit_log.jsonl",
+        help="Path to the audit log JSONL file (default: audit_log.jsonl)",
+    )
+    args = parser.parse_args()
+
     try:
-        ok, count, detail = verify_log(path)
+        ok, count, detail = verify_log(args.log_path)
         if ok:
             print(f"[PASS] Audit log intact. Verified {count} records. Tip: {detail[:16]}...")
             sys.exit(0)
@@ -55,7 +66,7 @@ def main():
             print(f"[FAIL] {detail}", file=sys.stderr)
             sys.exit(1)
     except FileNotFoundError:
-        print(f"[ERROR] Log file not found: {path}", file=sys.stderr)
+        print(f"[ERROR] Log file not found: {args.log_path}", file=sys.stderr)
         sys.exit(2)
 
 

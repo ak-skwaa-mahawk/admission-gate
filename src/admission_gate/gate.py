@@ -3,6 +3,7 @@
 admission_gate.gate - Library interface and execution wrapper for CLI agent actions.
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -192,8 +193,29 @@ def gated_shell(
 
 
 def main():
-    logger = AuditLogger()
-    print(f"[Agent Gate] Online. Tip hash: {logger.last_hash[:16]}...")
+    parser = argparse.ArgumentParser(
+        description="Deterministic admission gate for CLI agent actions."
+    )
+    parser.add_argument(
+        "--allow-root",
+        action="append",
+        dest="allowed_roots",
+        help="Allowed filesystem boundary (can be specified multiple times)",
+    )
+    parser.add_argument(
+        "--log-file",
+        default="audit_log.jsonl",
+        help="Path to write the audit trail (default: audit_log.jsonl)",
+    )
+    parser.add_argument(
+        "--no-confirm",
+        action="store_true",
+        help="Bypass interactive TTY confirmation (policy checks still enforced)",
+    )
+    args = parser.parse_args()
+
+    logger = AuditLogger(log_path=args.log_file)
+    print(f"[Agent Gate] Online. Log: {args.log_file} (Tip: {logger.last_hash[:16]}...)")
 
     if not sys.stdin.isatty():
         for line in sys.stdin:
@@ -208,13 +230,18 @@ def main():
                     target_path=str(data["target_path"]),
                     risk_tier=int(data.get("risk_tier", 1)),
                 )
-                executed, out, code = gated_shell(proposal)
+                executed, out, code = gated_shell(
+                    proposal,
+                    allowed_roots=args.allowed_roots,
+                    log_path=args.log_file,
+                    require_confirm=not args.no_confirm,
+                )
                 status = f"Code {code}" if executed else "Blocked"
                 print(f"Result [{proposal.action_id}]: {status} - {out.strip()}")
             except Exception as e:
                 print(f"Error parsing line: {e}", file=sys.stderr)
     else:
-        print("Listening on stdin for JSON proposals. Example:")
+        print("Reading stdin for JSON proposals. Example:")
         print('{"action_id": "1", "command": "echo test", "target_path": "./workspace", "risk_tier": 1}')
 
 
