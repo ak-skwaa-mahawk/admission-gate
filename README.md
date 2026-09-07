@@ -1,3 +1,24 @@
+---
+name: Path bypass / policy edge case
+about: Report a path canonicalization escape or policy engine loophole
+title: "[BYPASS]: "
+labels: bug, security
+---
+
+### Environment
+- OS: [e.g. Windows 11, macOS Sonoma, Ubuntu 24.04, Android Termux]
+- Python Version: [e.g. 3.11]
+
+### Proposed Action
+```json
+{
+  "action_id": "test_bypass",
+  "command": "...",
+  "target_path": "...",
+  "risk_tier": 1
+}
+
+
 # admission-gate
 
 [![CI](https://github.com/ak-skwaa-mahawk/admission-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/ak-skwaa-mahawk/admission-gate/actions/workflows/ci.yml)
