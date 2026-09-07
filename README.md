@@ -1,5 +1,14 @@
 # admission-gate
 
+[![CI](https://github.com/ak-skwaa-mahawk/admission-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/ak-skwaa-mahawk/admission-gate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/ak-skwaa-mahawk/admission-gate)](https://github.com/ak-skwaa-mahawk/admission-gate/releases)
+
+A lightweight admission gatekeeper and cryptographic audit logger for autonomous CLI agents.
+
+
+# admission-gate
+
 A lightweight admission gatekeeper and cryptographic audit logger for autonomous CLI agents.
 
 When local scripts or LLMs execute commands in a subshell, developers are forced between two extremes: fully autonomous execution that risks destructive operations, or prompt fatigue from micro-approving dozens of benign commands. `admission-gate` sits between the agent and your shell:
