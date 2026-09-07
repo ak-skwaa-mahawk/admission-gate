@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "admission-gate"
+version = "0.1.0"
+description = "Deterministic admission gate with human review and cryptographic audit logging for CLI agents."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "ak-skwaa-mahawk" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.scripts]
+admission-gate = "admission_gate.gate:main"
+verify-audit = "admission_gate.verify:main"
