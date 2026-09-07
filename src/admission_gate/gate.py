@@ -13,6 +13,8 @@ import time
 from dataclasses import asdict, dataclass
 from typing import List, Optional, Tuple
 
+from admission_gate.config import GateConfig, find_default_config
+
 
 @dataclass
 class ActionProposal:
@@ -23,9 +25,9 @@ class ActionProposal:
 
 
 class PolicyEngine:
-    BLOCKED_PATTERNS = ["rm -rf /", ":(){ :|:& };:", "/dev/sd", "> /dev/null"]
+    DEFAULT_BLOCKED_PATTERNS = ["rm -rf /", ":(){ :|:& };:", "/dev/sd", "> /dev/null"]
 
-    PROTECTED_PATHS = [
+    DEFAULT_PROTECTED_PATHS = [
         "/etc",
         "/boot",
         "/sys",
@@ -60,14 +62,34 @@ class PolicyEngine:
         cls,
         proposal: ActionProposal,
         allowed_roots: Optional[List[str]] = None,
+        blocked_patterns: Optional[List[str]] = None,
+        protected_paths: Optional[List[str]] = None,
+        config: Optional[GateConfig] = None,
     ) -> Tuple[bool, str]:
-        for pattern in cls.BLOCKED_PATTERNS:
+        # Merge configuration sources
+        active_blocked = (
+            config.blocked_patterns
+            if config
+            else (blocked_patterns if blocked_patterns is not None else cls.DEFAULT_BLOCKED_PATTERNS)
+        )
+        active_protected = (
+            config.protected_paths
+            if config
+            else (protected_paths if protected_paths is not None else cls.DEFAULT_PROTECTED_PATHS)
+        )
+        active_allowed = (
+            allowed_roots
+            if allowed_roots is not None
+            else (config.allowed_roots if config else None)
+        )
+
+        for pattern in active_blocked:
             if pattern in proposal.command:
                 return False, f"Blocked: matched hazardous pattern '{pattern}'"
 
         target_norm = cls._canonicalize(proposal.target_path)
 
-        for raw_protected in cls.PROTECTED_PATHS:
+        for raw_protected in active_protected:
             protected_norm = cls._canonicalize(raw_protected)
             if cls._is_within(target_norm, protected_norm):
                 return (
@@ -75,15 +97,15 @@ class PolicyEngine:
                     f"Blocked: path resolves to protected directory '{raw_protected}'",
                 )
 
-        if allowed_roots:
+        if active_allowed:
             in_allowed = False
-            for raw_allowed in allowed_roots:
+            for raw_allowed in active_allowed:
                 allowed_norm = cls._canonicalize(raw_allowed)
                 if cls._is_within(target_norm, allowed_norm):
                     in_allowed = True
                     break
             if not in_allowed:
-                allowed_str = ", ".join(allowed_roots)
+                allowed_str = ", ".join(active_allowed)
                 return False, f"Blocked: path escapes allowed roots ({allowed_str})"
 
         if proposal.risk_tier not in (1, 2, 3):
@@ -151,23 +173,42 @@ def _prompt_tty(message: str) -> bool:
 
 
 def evaluate(
-    proposal: ActionProposal, allowed_roots: Optional[List[str]] = None
+    proposal: ActionProposal,
+    allowed_roots: Optional[List[str]] = None,
+    blocked_patterns: Optional[List[str]] = None,
+    protected_paths: Optional[List[str]] = None,
+    config: Optional[GateConfig] = None,
 ) -> Tuple[bool, str]:
-    return PolicyEngine.evaluate(proposal, allowed_roots=allowed_roots)
+    return PolicyEngine.evaluate(
+        proposal,
+        allowed_roots=allowed_roots,
+        blocked_patterns=blocked_patterns,
+        protected_paths=protected_paths,
+        config=config,
+    )
 
 
 def gated_shell(
     proposal: ActionProposal,
     allowed_roots: Optional[List[str]] = None,
-    log_path: str = "audit_log.jsonl",
-    require_confirm: bool = True,
+    log_path: Optional[str] = None,
+    require_confirm: Optional[bool] = None,
+    config: Optional[GateConfig] = None,
 ) -> Tuple[bool, str, int]:
-    logger = AuditLogger(log_path=log_path)
-    passed, reason = evaluate(proposal, allowed_roots=allowed_roots)
+    cfg = config or GateConfig()
+    if allowed_roots is not None:
+        cfg.allowed_roots = allowed_roots
+    if log_path is not None:
+        cfg.log_file = log_path
+    if require_confirm is not None:
+        cfg.require_confirm = require_confirm
+
+    logger = AuditLogger(log_path=cfg.log_file)
+    passed, reason = evaluate(proposal, config=cfg)
 
     decision = None
     if passed:
-        if require_confirm:
+        if cfg.require_confirm:
             msg = f"[Agent Gate] Authorize command '{proposal.command}' on target '{proposal.target_path}'? [y/N]: "
             decision = _prompt_tty(msg)
         else:
@@ -197,6 +238,11 @@ def main():
         description="Deterministic admission gate for CLI agent actions."
     )
     parser.add_argument(
+        "--config",
+        "-c",
+        help="Path to TOML configuration file (default: admission_gate.toml if present)",
+    )
+    parser.add_argument(
         "--allow-root",
         action="append",
         dest="allowed_roots",
@@ -204,7 +250,6 @@ def main():
     )
     parser.add_argument(
         "--log-file",
-        default="audit_log.jsonl",
         help="Path to write the audit trail (default: audit_log.jsonl)",
     )
     parser.add_argument(
@@ -214,8 +259,29 @@ def main():
     )
     args = parser.parse_args()
 
-    logger = AuditLogger(log_path=args.log_file)
-    print(f"[Agent Gate] Online. Log: {args.log_file} (Tip: {logger.last_hash[:16]}...)")
+    # Load configuration
+    config_file = args.config or find_default_config()
+    if config_file:
+        try:
+            config = GateConfig.load_from_file(config_file)
+        except Exception as e:
+            print(f"[Error loading config] {e}", file=sys.stderr)
+            sys.exit(2)
+    else:
+        config = GateConfig()
+
+    # Command-line arguments override configuration file values
+    if args.allowed_roots:
+        config.allowed_roots = args.allowed_roots
+    if args.log_file:
+        config.log_file = args.log_file
+    if args.no_confirm:
+        config.require_confirm = False
+
+    logger = AuditLogger(log_path=config.log_file)
+    print(f"[Agent Gate] Online. Log: {config.log_file} (Tip: {logger.last_hash[:16]}...)")
+    if config.allowed_roots:
+        print(f"[Policy] Sandboxed roots: {', '.join(config.allowed_roots)}")
 
     if not sys.stdin.isatty():
         for line in sys.stdin:
@@ -230,12 +296,7 @@ def main():
                     target_path=str(data["target_path"]),
                     risk_tier=int(data.get("risk_tier", 1)),
                 )
-                executed, out, code = gated_shell(
-                    proposal,
-                    allowed_roots=args.allowed_roots,
-                    log_path=args.log_file,
-                    require_confirm=not args.no_confirm,
-                )
+                executed, out, code = gated_shell(proposal, config=config)
                 status = f"Code {code}" if executed else "Blocked"
                 print(f"Result [{proposal.action_id}]: {status} - {out.strip()}")
             except Exception as e:

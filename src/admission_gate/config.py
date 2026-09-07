@@ -1,0 +1,122 @@
+"""
+admission_gate.config - Zero-dependency configuration loader for admission-gate.
+Supports TOML format using standard library tomllib (Python 3.11+) or minimal fallback.
+"""
+
+import os
+import sys
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+try:
+    import tomllib
+except ImportError:
+    # Python < 3.11 fallback or try tomli if installed
+    try:
+        import tomli as tomllib  # type: ignore
+    except ImportError:
+        tomllib = None
+
+
+@dataclass
+class GateConfig:
+    blocked_patterns: List[str] = field(
+        default_factory=lambda: [
+            "rm -rf /",
+            ":(){ :|:& };:",
+            "/dev/sd",
+            "> /dev/null",
+        ]
+    )
+    protected_paths: List[str] = field(
+        default_factory=lambda: [
+            "/etc",
+            "/boot",
+            "/sys",
+            "/dev",
+            "/proc",
+            "C:\\Windows",
+            "C:\\Windows\\System32",
+        ]
+    )
+    allowed_roots: List[str] = field(default_factory=list)
+    log_file: str = "audit_log.jsonl"
+    require_confirm: bool = True
+
+    @classmethod
+    def load_from_file(cls, path: str) -> "GateConfig":
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        cfg = cls()
+
+        if tomllib is not None:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        else:
+            # Minimal fallback TOML parser for basic list/scalar parsing
+            data = _parse_simple_toml(path)
+
+        # Merge policy section
+        policy = data.get("policy", {})
+        if "blocked_patterns" in policy:
+            cfg.blocked_patterns = list(policy["blocked_patterns"])
+        if "require_confirm" in policy:
+            cfg.require_confirm = bool(policy["require_confirm"])
+
+        # Merge filesystem section
+        fs = data.get("filesystem", {})
+        if "protected_paths" in fs:
+            cfg.protected_paths = list(fs["protected_paths"])
+        if "allowed_roots" in fs:
+            cfg.allowed_roots = list(fs["allowed_roots"])
+
+        # Merge logging section
+        logging = data.get("logging", {})
+        if "log_file" in logging:
+            cfg.log_file = str(logging["log_file"])
+
+        return cfg
+
+
+def _parse_simple_toml(path: str) -> dict:
+    """Fallback basic TOML reader when tomllib is absent."""
+    result = {}
+    current_section = result
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section_name = line[1:-1].strip()
+                result[section_name] = {}
+                current_section = result[section_name]
+            elif "=" in line:
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip()
+                if val.startswith("[") and val.endswith("]"):
+                    # Parse array of strings
+                    raw_items = val[1:-1].split(",")
+                    items = [
+                        i.strip().strip("\"'")
+                        for i in raw_items
+                        if i.strip().strip("\"'")
+                    ]
+                    current_section[key] = items
+                elif val.lower() in ("true", "false"):
+                    current_section[key] = val.lower() == "true"
+                else:
+                    current_section[key] = val.strip("\"'")
+    return result
+
+
+def find_default_config() -> Optional[str]:
+    """Finds admission_gate.toml in current working directory or ancestors."""
+    cur = os.getcwd()
+    candidate = os.path.join(cur, "admission_gate.toml")
+    if os.path.isfile(candidate):
+        return candidate
+    return None

@@ -1,0 +1,35 @@
+# admission_gate.toml - Example configuration file
+
+[policy]
+# Substring patterns rejected before any command execution
+blocked_patterns = [
+    "rm -rf /",
+    ":(){ :|:& };:",
+    "/dev/sd",
+    "> /dev/null",
+    "mkfs",
+]
+
+# Set to false for automated testing / non-interactive pipelines
+require_confirm = true
+
+[filesystem]
+# Confine execution strictly inside these directory trees
+allowed_roots = [
+    "./workspace",
+    "./scratch",
+]
+
+# System directories that can never be targeted
+protected_paths = [
+    "/etc",
+    "/boot",
+    "/sys",
+    "/dev",
+    "/proc",
+    "C:\\Windows",
+    "C:\\Windows\\System32",
+]
+
+[logging]
+log_file = "audit_log.jsonl"
