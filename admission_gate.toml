@@ -1,0 +1,33 @@
+[policy]
+# Substring patterns rejected before any execution
+blocked_patterns = [
+    "rm -rf /",
+    ":(){ :|:& };:",
+    "/dev/sd",
+    "> /dev/null",
+    "mkfs",
+]
+
+# Set to false to bypass interactive [y/N] prompts (policy checks still enforced)
+require_confirm = true
+
+[filesystem]
+# Confine execution strictly inside these directory boundaries
+allowed_roots = [
+    "./workspace",
+    "./scratch",
+]
+
+# Protected system paths that can never be targeted
+protected_paths = [
+    "/etc",
+    "/boot",
+    "/sys",
+    "/dev",
+    "/proc",
+    "C:\\Windows",
+    "C:\\Windows\\System32",
+]
+
+[logging]
+log_file = "audit_log.jsonl"
