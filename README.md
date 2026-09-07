@@ -1,3 +1,6 @@
+# 1. Create the issue template directory and file
+mkdir -p .github/ISSUE_TEMPLATE
+cat << 'EOF' > .github/ISSUE_TEMPLATE/path_bypass.md
 ---
 name: Path bypass / policy edge case
 about: Report a path canonicalization escape or policy engine loophole
@@ -17,6 +20,7 @@ labels: bug, security
   "target_path": "...",
   "risk_tier": 1
 }
+
 
 
 # admission-gate
