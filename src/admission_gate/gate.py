@@ -7,11 +7,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 from admission_gate.config import GateConfig, find_default_config
 
@@ -37,6 +39,14 @@ class PolicyEngine:
         "C:\\Windows\\System32",
     ]
 
+    # Metacharacters that allow hidden indirect subshell execution
+    SUBSHELL_PATTERNS = [
+        r"\$\(.*\)",     # $(cmd)
+        r"`.*`",         # `cmd`
+        r"<\(.*\)",     # <(cmd)
+        r">\([^\)]*\)",  # >(cmd)
+    ]
+
     @classmethod
     def _canonicalize(cls, path: str) -> str:
         expanded = os.path.expanduser(path)
@@ -58,6 +68,41 @@ class PolicyEngine:
         return child == parent or child.startswith(parent_dir)
 
     @classmethod
+    def _extract_command_paths(cls, command: str) -> Set[str]:
+        """Extracts candidate filesystem paths and redirection targets from the command string."""
+        paths = set()
+        try:
+            tokens = shlex.split(command, posix=os.name != "nt")
+        except ValueError:
+            # Unbalanced quotes or malformed syntax: flag as suspicious
+            return paths
+
+        path_prefixes = ("/", "./", "../", "~")
+        for idx, token in enumerate(tokens):
+            # Check redirection targets: > file, >> file
+            if token in (">", ">>", "<") and idx + 1 < len(tokens):
+                paths.add(tokens[idx + 1])
+                continue
+
+            # Strip leading redirection if joined: >file or >>file
+            clean_token = token
+            if clean_token.startswith(">>"):
+                clean_token = clean_token[2:]
+            elif clean_token.startswith(">") or clean_token.startswith("<"):
+                clean_token = clean_token[1:]
+
+            # Heuristic for filesystem path targets
+            if (
+                clean_token.startswith(path_prefixes)
+                or (len(clean_token) > 2 and clean_token[1:3] == ":\\")
+                or "/" in clean_token
+                or "\\" in clean_token
+            ):
+                paths.add(clean_token)
+
+        return paths
+
+    @classmethod
     def evaluate(
         cls,
         proposal: ActionProposal,
@@ -66,7 +111,6 @@ class PolicyEngine:
         protected_paths: Optional[List[str]] = None,
         config: Optional[GateConfig] = None,
     ) -> Tuple[bool, str]:
-        # Merge configuration sources
         active_blocked = (
             config.blocked_patterns
             if config
@@ -83,31 +127,47 @@ class PolicyEngine:
             else (config.allowed_roots if config else None)
         )
 
+        # 1. Blocked static substrings
         for pattern in active_blocked:
             if pattern in proposal.command:
                 return False, f"Blocked: matched hazardous pattern '{pattern}'"
 
-        target_norm = cls._canonicalize(proposal.target_path)
+        # 2. Subshell substitution detection
+        for sub_pat in cls.SUBSHELL_PATTERNS:
+            if re.search(sub_pat, proposal.command):
+                return False, f"Blocked: metacharacter or subshell substitution detected matching '{sub_pat}'"
 
-        for raw_protected in active_protected:
-            protected_norm = cls._canonicalize(raw_protected)
-            if cls._is_within(target_norm, protected_norm):
-                return (
-                    False,
-                    f"Blocked: path resolves to protected directory '{raw_protected}'",
-                )
+        # 3. Collect all paths: explicit target_path + any paths detected in the command
+        paths_to_check = {proposal.target_path} | cls._extract_command_paths(proposal.command)
 
-        if active_allowed:
-            in_allowed = False
-            for raw_allowed in active_allowed:
-                allowed_norm = cls._canonicalize(raw_allowed)
-                if cls._is_within(target_norm, allowed_norm):
-                    in_allowed = True
-                    break
-            if not in_allowed:
-                allowed_str = ", ".join(active_allowed)
-                return False, f"Blocked: path escapes allowed roots ({allowed_str})"
+        for raw_path in paths_to_check:
+            norm_path = cls._canonicalize(raw_path)
 
+            # Check protected system directories
+            for raw_protected in active_protected:
+                protected_norm = cls._canonicalize(raw_protected)
+                if cls._is_within(norm_path, protected_norm):
+                    return (
+                        False,
+                        f"Blocked: path '{raw_path}' resolves to protected directory '{raw_protected}'",
+                    )
+
+            # Check allowed roots sandbox
+            if active_allowed:
+                in_allowed = False
+                for raw_allowed in active_allowed:
+                    allowed_norm = cls._canonicalize(raw_allowed)
+                    if cls._is_within(norm_path, allowed_norm):
+                        in_allowed = True
+                        break
+                if not in_allowed:
+                    allowed_str = ", ".join(active_allowed)
+                    return (
+                        False,
+                        f"Blocked: path '{raw_path}' escapes allowed roots ({allowed_str})",
+                    )
+
+        # 4. Validate risk tier range
         if proposal.risk_tier not in (1, 2, 3):
             return False, "Blocked: invalid risk tier (must be 1, 2, or 3)"
 
@@ -259,7 +319,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load configuration
     config_file = args.config or find_default_config()
     if config_file:
         try:
@@ -270,7 +329,6 @@ def main():
     else:
         config = GateConfig()
 
-    # Command-line arguments override configuration file values
     if args.allowed_roots:
         config.allowed_roots = args.allowed_roots
     if args.log_file:
