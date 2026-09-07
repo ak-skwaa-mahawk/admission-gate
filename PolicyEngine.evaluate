@@ -1,0 +1,6 @@
+# Inside evaluate():
+inferred_tier, tier_reason = cls.classify_risk(proposal.command)
+effective_tier = max(proposal.risk_tier, inferred_tier)
+
+# Log or record if the agent under-reported
+tier_escalated = effective_tier > proposal.risk_tier
