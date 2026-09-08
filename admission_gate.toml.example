@@ -1,35 +1,39 @@
-# admission_gate.toml - Example configuration file
+# admission_gate.toml.example
+# Complete configuration reference for Admission Gate v0.4.0
+# Precedence: CLI Flags > Environment Variables > Config File > Defaults
 
-[policy]
-# Substring patterns rejected before any command execution
-blocked_patterns = [
-    "rm -rf /",
-    ":(){ :|:& };:",
-    "/dev/sd",
-    "> /dev/null",
-    "mkfs",
-]
-
-# Set to false for automated testing / non-interactive pipelines
 require_confirm = true
+log_file = "audit_log.jsonl"
+blocked_patterns = ["rm -rf /", ":(){ :|:& };:", "/dev/sd", "> /dev/null"]
+protected_paths = ["/etc", "/boot", "/sys", "/dev", "/proc", "C:\\Windows"]
 
 [filesystem]
-# Confine execution strictly inside these directory trees
-allowed_roots = [
-    "./workspace",
-    "./scratch",
+# Partitioned root boundaries
+# Tier 1 (read-only) actions can inspect read_roots + write_roots.
+# Tier 2/3 (mutating/destructive) actions are strictly confined to write_roots.
+read_roots = ["./repo", "./docs"]
+write_roots = ["./workspace", "./scratch"]
+
+[exec]
+# Allowlist / Denylist verified against canonical realpath of argv[0]
+allow = [
+    "python", "python3", "pytest", "git", "ls", "cat", "head", "tail",
+    "grep", "find", "stat", "echo", "pwd", "diff", "mkdir", "touch", "cp", "mv"
+]
+deny = [
+    "curl", "wget", "nc", "ncat", "netcat", "socat", "ssh", "scp", "sftp",
+    "ftp", "telnet", "bash", "zsh", "sudo", "su"
 ]
 
-# System directories that can never be targeted
-protected_paths = [
-    "/etc",
-    "/boot",
-    "/sys",
-    "/dev",
-    "/proc",
-    "C:\\Windows",
-    "C:\\Windows\\System32",
-]
+[process]
+# Hardened execution parameters
+timeout_seconds = 30.0
+scrub_env = true
+# Allowlist for sanitized child processes (blocks LD_PRELOAD, PYTHONPATH, API keys)
+env_allow = ["PATH", "HOME", "LANG", "TERM", "USER", "SHELL", "TMPDIR", "VIRTUAL_ENV"]
 
-[logging]
-log_file = "audit_log.jsonl"
+[rate_limit]
+enabled = true
+max_requests_per_minute = 30
+burst_threshold = 5
+tier3_cooldown_seconds = 3.0

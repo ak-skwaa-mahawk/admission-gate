@@ -191,3 +191,20 @@ def find_default_config() -> Optional[str]:
     if os.path.isfile(candidate):
         return candidate
     return None
+
+
+def apply_env_overrides(cfg: GateConfig) -> GateConfig:
+    """Applies environment variable overrides adhering to: Flags > Env > File > Defaults."""
+    import os
+    if "ADMISSION_GATE_READ_ROOTS" in os.environ:
+        cfg.read_roots = [p.strip() for p in os.environ["ADMISSION_GATE_READ_ROOTS"].split(os.pathsep) if p.strip()]
+    if "ADMISSION_GATE_WRITE_ROOTS" in os.environ:
+        cfg.write_roots = [p.strip() for p in os.environ["ADMISSION_GATE_WRITE_ROOTS"].split(os.pathsep) if p.strip()]
+    if "ADMISSION_GATE_TIMEOUT" in os.environ:
+        try:
+            cfg.process.timeout_seconds = float(os.environ["ADMISSION_GATE_TIMEOUT"])
+        except ValueError:
+            pass
+    if "ADMISSION_GATE_SCRUB_ENV" in os.environ:
+        cfg.process.scrub_env = os.environ["ADMISSION_GATE_SCRUB_ENV"].lower() in ("1", "true", "yes")
+    return cfg

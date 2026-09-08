@@ -105,6 +105,108 @@ def replay_proposal(entry: Dict[str, Any], config: GateConfig) -> Dict[str, Any]
     }
 
 
+
+def run_replay(log_path: str, config_path: Optional[str] = None):
+    """Re-evaluates audit proposals against active 0.4.0 policy and outputs differential analysis."""
+    import os, json
+    from admission_gate.config import GateConfig, find_default_config
+    from admission_gate.gate import PolicyEngine, ActionProposal
+
+    cfg_file = config_path or find_default_config()
+    cfg = GateConfig.load_from_file(cfg_file) if cfg_file and os.path.exists(cfg_file) else GateConfig()
+
+    print(f"[Replay Engine] Evaluating entries from '{log_path}' against active policy...")
+    if not os.path.exists(log_path):
+        print(f"Log file not found: {log_path}")
+        return
+
+    admitted_count = 0
+    denied_count = 0
+    incompatible_count = 0
+
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line_num, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            schema = entry.get("schema_version", "legacy")
+            proposal_data = entry.get("proposal", {})
+            action_id = proposal_data.get("action_id", f"line-{line_num}")
+            cmd = proposal_data.get("command", "")
+            target = proposal_data.get("target_path", "")
+            declared_tier = proposal_data.get("risk_tier", 1)
+
+            p = ActionProposal(action_id=action_id, command=cmd, target_path=target, risk_tier=declared_tier)
+
+            # Pre-0.4.0 schema gap detection
+            if schema == "legacy" and "resolved_binaries" not in entry:
+                print(f"[{action_id}] CANNOT REPLAY: Pre-0.4.0 record lacks resolved_binaries metadata.")
+                incompatible_count += 1
+                continue
+
+            passed_now, reason_now, _ = PolicyEngine.evaluate(p, config=cfg)
+            orig_passed = entry.get("policy_passed", False)
+
+            if orig_passed and not passed_now:
+                # Classify divergence reason
+                category = "policy"
+                if "execution allowlist" in reason_now or "denied by execution policy" in reason_now:
+                    category = "argv0"
+                elif "write_roots" in reason_now or "read-only root" in reason_now or "escapes" in reason_now:
+                    category = "write-root"
+                elif "environment variable" in reason_now:
+                    category = "env"
+
+                print(f"[{action_id}] WOULD NOW DENY (divergence: {category}): {reason_now}")
+                denied_count += 1
+            elif orig_passed and passed_now:
+                print(f"[{action_id}] WOULD STILL ADMIT")
+                admitted_count += 1
+            elif not orig_passed and passed_now:
+                print(f"[{action_id}] FORMERLY DENIED -> WOULD NOW ADMIT (policy loosened)")
+                admitted_count += 1
+            else:
+                print(f"[{action_id}] WOULD STILL DENY: {reason_now}")
+                denied_count += 1
+
+    print(f"\nReplay complete. Admitted: {admitted_count} | Denied: {denied_count} | Schema Gap: {incompatible_count}")
+
+
+
+def verify_hash_chain(log_path: str) -> bool:
+    """Verifies continuous SHA-256 hash-chain integrity of the audit log."""
+    import os, json, hashlib
+    if not os.path.exists(log_path):
+        print(f"Log file not found: {log_path}")
+        return False
+
+    prev_expected = "0" * 64
+    total = 0
+    with open(log_path, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            actual_hash = entry.get("entry_hash")
+            prev_hash = entry.get("prev_hash")
+            if prev_hash != prev_expected:
+                print(f"[TAMPER DETECTED] Line {idx}: prev_hash {prev_hash[:16]}... does not match expected {prev_expected[:16]}...")
+                return False
+
+            payload = {k: v for k, v in entry.items() if k != "entry_hash"}
+            serialized = json.dumps(payload, sort_keys=True)
+            computed_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+            if computed_hash != actual_hash:
+                print(f"[TAMPER DETECTED] Line {idx}: entry_hash mismatch. Recorded {actual_hash[:16]}..., computed {computed_hash[:16]}...")
+                return False
+
+            prev_expected = actual_hash
+            total += 1
+
+    print(f"[Chain OK] Verified {total} audit records. Cryptographic integrity intact.")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Forensic query and replay tool for admission-gate audit logs."

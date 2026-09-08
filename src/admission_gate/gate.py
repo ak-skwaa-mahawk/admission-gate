@@ -19,6 +19,7 @@ from typing import Deque, List, Optional, Set, Tuple
 import signal
 import shutil
 from admission_gate.config import (
+    apply_env_overrides,
     DEFAULT_ALLOWED_BINARIES,
     DEFAULT_DENIED_BINARIES,
     ExecConfig,
@@ -470,6 +471,7 @@ class AuditLogger:
         **kwargs,
     ) -> str:
         payload = {
+            "schema_version": "0.4.0",
             "prev_hash": self.last_hash,
             "timestamp_ns": time.time_ns(),
             "proposal": asdict(proposal),
@@ -480,6 +482,7 @@ class AuditLogger:
             "policy_passed": passed,
             "policy_reason": reason,
             "human_accepted": human_decision,
+            "config_precedence": kwargs.get("config_precedence", "flags > env > file > defaults"),
         }
         serialized = json.dumps(payload, sort_keys=True)
         entry_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -667,7 +670,43 @@ def main():
         "--allow-root",
         action="append",
         dest="allowed_roots",
-        help="Allowed filesystem boundary (can be specified multiple times)",
+        help="Legacy allowed boundary (populates both read and write roots)",
+    )
+    parser.add_argument(
+        "--read-root",
+        action="append",
+        dest="read_roots",
+        help="Read-only filesystem root (repeatable)",
+    )
+    parser.add_argument(
+        "--write-root",
+        action="append",
+        dest="write_roots",
+        help="Write-capable filesystem root (repeatable)",
+    )
+    parser.add_argument(
+        "--allow-bin",
+        action="append",
+        dest="allow_bins",
+        help="Permitted executable binary basename or absolute path (repeatable)",
+    )
+    parser.add_argument(
+        "--deny-bin",
+        action="append",
+        dest="deny_bins",
+        help="Explicitly forbidden executable binary basename (repeatable)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        dest="timeout_seconds",
+        help="Command execution timeout in seconds (default: 30.0)",
+    )
+    parser.add_argument(
+        "--no-scrub-env",
+        action="store_true",
+        dest="no_scrub_env",
+        help="Disable process environment variable scrubbing",
     )
     parser.add_argument(
         "--log-file",
@@ -695,8 +734,27 @@ def main():
     else:
         config = GateConfig()
 
+    # 1. Base file config loaded or defaults initialized
+    # 2. Env overrides applied: Flags > Env > File > Defaults
+    config = apply_env_overrides(config)
+
+    # 3. CLI Flag overrides
     if args.allowed_roots:
         config.allowed_roots = args.allowed_roots
+        config.read_roots = list(args.allowed_roots)
+        config.write_roots = list(args.allowed_roots)
+    if args.read_roots:
+        config.read_roots = args.read_roots
+    if args.write_roots:
+        config.write_roots = args.write_roots
+    if args.allow_bins:
+        config.exec_policy.allow = args.allow_bins
+    if args.deny_bins:
+        config.exec_policy.deny = args.deny_bins
+    if args.timeout_seconds is not None:
+        config.process.timeout_seconds = args.timeout_seconds
+    if args.no_scrub_env:
+        config.process.scrub_env = False
     if args.log_file:
         config.log_file = args.log_file
     if args.no_confirm:
