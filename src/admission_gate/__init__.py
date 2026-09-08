@@ -11,6 +11,7 @@ from admission_gate.gate import (
     evaluate,
     gated_shell,
 )
+from admission_gate.query import filter_entries, replay_proposal
 from admission_gate.verify import verify_log
 
 __all__ = [
@@ -21,7 +22,9 @@ __all__ = [
     "RateLimitConfig",
     "RateLimiter",
     "evaluate",
+    "filter_entries",
     "gated_shell",
+    "replay_proposal",
     "verify_log",
 ]
 __version__ = "0.2.0"
