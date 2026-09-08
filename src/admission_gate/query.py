@@ -240,6 +240,9 @@ def main():
     until_ts = parse_relative_time(args.until) if args.until else None
 
     cfg = None
+    if args.verify:
+        ok = verify_hash_chain(log_path)
+        sys.exit(0 if ok else 1)
     if args.replay:
         cfg_file = args.config or find_default_config()
         cfg = GateConfig.load_from_file(cfg_file) if cfg_file else GateConfig()
