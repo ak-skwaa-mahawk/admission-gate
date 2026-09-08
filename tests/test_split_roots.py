@@ -7,6 +7,9 @@ from admission_gate import ActionProposal, GateConfig, gated_shell
 
 class TestSplitRoots(unittest.TestCase):
     def setUp(self):
+        from admission_gate.gate import _DEFAULT_LIMITER
+        _DEFAULT_LIMITER.history.clear()
+        _DEFAULT_LIMITER.last_tier3_time = 0.0
         self.temp_dir = tempfile.TemporaryDirectory()
         self.read_root = os.path.join(self.temp_dir.name, "repo")
         self.write_root = os.path.join(self.temp_dir.name, "workspace")

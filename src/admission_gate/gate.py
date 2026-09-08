@@ -16,6 +16,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Deque, List, Optional, Set, Tuple
 
+import signal
 import shutil
 from admission_gate.config import (
     DEFAULT_ALLOWED_BINARIES,
@@ -23,6 +24,7 @@ from admission_gate.config import (
     ExecConfig,
     GateConfig,
     RateLimitConfig,
+    ProcessConfig,
     find_default_config,
 )
 
@@ -135,6 +137,26 @@ class PolicyEngine:
     MULTIPLEXER_BINARIES = {"coreutils", "busybox", "toybox"}
 
     @classmethod
+    def _split_command_segments(cls, command: str) -> List[List[str]]:
+        try:
+            tokens = shlex.split(command, posix=os.name != "nt")
+        except ValueError:
+            return []
+        segments = []
+        current = []
+        for t in tokens:
+            if t in (";", "&&", "||", "|", "&"):
+                if current:
+                    segments.append(current)
+                    current = []
+            else:
+                current.append(t)
+        if current:
+            segments.append(current)
+        return segments
+
+
+    @classmethod
     def resolve_binary(cls, binary_token: str) -> Tuple[Optional[str], str, str]:
         invoked_base = os.path.basename(binary_token)
         if os.sep in binary_token or (os.altsep and os.altsep in binary_token) or binary_token.startswith("."):
@@ -148,19 +170,17 @@ class PolicyEngine:
 
     @classmethod
     def verify_executables(cls, command: str, exec_config: ExecConfig) -> Tuple[bool, str, List[str]]:
-        segments = re.split(r"[;&|]+", command)
+        segment_tokens = cls._split_command_segments(command)
+        if not segment_tokens:
+            try:
+                shlex.split(command, posix=os.name != "nt")
+            except ValueError:
+                return False, "Malformed command tokenization", []
         resolved_binaries = []
         allow_set = set(exec_config.allow) if exec_config.allow else set(DEFAULT_ALLOWED_BINARIES)
         deny_set = set(exec_config.deny) if exec_config.deny is not None else set(DEFAULT_DENIED_BINARIES)
 
-        for segment in segments:
-            seg = segment.strip()
-            if not seg:
-                continue
-            try:
-                tokens = shlex.split(seg, posix=os.name != "nt")
-            except ValueError:
-                return False, "Malformed command tokenization", []
+        for tokens in segment_tokens:
             if not tokens:
                 continue
             raw_argv0 = tokens[0]
@@ -271,9 +291,15 @@ class PolicyEngine:
         path_prefixes = ("/", "./", "../", "~", "$", "%")
         # argv[0] is governed by exec_policy, not path confinement
         operand_tokens = tokens[1:] if len(tokens) > 1 else []
+        skip_next = False
         for idx, token in enumerate(operand_tokens):
-            if token in (">", ">>", "<") and idx + 1 < len(tokens):
-                paths.add(tokens[idx + 1])
+            if skip_next:
+                skip_next = False
+                continue
+            if token in (">", ">>", "<"):
+                if idx + 1 < len(operand_tokens):
+                    paths.add(operand_tokens[idx + 1])
+                    skip_next = True
                 continue
 
             clean_token = token
@@ -436,14 +462,21 @@ class AuditLogger:
         proposal: ActionProposal,
         passed: bool,
         reason: str,
-        human_decision: Optional[bool],
+        human_decision: Optional[bool] = None,
         effective_tier: int = 1,
+        resolved_binaries: Optional[List[str]] = None,
+        env_scrubbed: bool = False,
+        timeout_fired: bool = False,
+        **kwargs,
     ) -> str:
         payload = {
             "prev_hash": self.last_hash,
             "timestamp_ns": time.time_ns(),
             "proposal": asdict(proposal),
             "effective_risk_tier": effective_tier,
+            "resolved_binaries": resolved_binaries or [],
+            "env_scrubbed": env_scrubbed,
+            "timeout_fired": timeout_fired,
             "policy_passed": passed,
             "policy_reason": reason,
             "human_accepted": human_decision,
@@ -518,14 +551,22 @@ def gated_shell(
     passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
     _, _, resolved_bins = PolicyEngine.verify_executables(proposal.command, cfg.exec_policy)
 
-    # Apply rate limiting & burst checks if policy passed
     rate_ok, force_confirm, rate_reason = active_limiter.check(effective_tier)
     if not rate_ok:
         passed = False
         reason = rate_reason
 
     if verify_only:
-        logger.commit(proposal, passed, reason, human_decision=None, effective_tier=effective_tier)
+        logger.commit(
+            proposal,
+            passed=passed,
+            reason=reason,
+            human_decision=None,
+            effective_tier=effective_tier,
+            resolved_binaries=resolved_bins,
+            env_scrubbed=False,
+            timeout_fired=False,
+        )
         return passed, reason, 0 if passed else -1
 
     decision = None
@@ -534,8 +575,8 @@ def gated_shell(
         if needs_confirm:
             spike_warn = " [BURST ESCALATION]" if force_confirm and not cfg.require_confirm else ""
             msg = (
-                f"[Agent Gate]{spike_warn} Authorize [Tier {effective_tier}] command '{proposal.command}' "
-                f"on target '{proposal.target_path}'? [y/N]: "
+                f"[Agent Gate]{spike_warn} Authorize [Tier {effective_tier}] command \x27{proposal.command}\x27 "
+                f"on target \x27{proposal.target_path}\x27? [y/N]: "
             )
             decision = _prompt_tty(msg)
         else:
@@ -543,24 +584,74 @@ def gated_shell(
     else:
         decision = False
 
-    logger.commit(proposal, passed, reason, decision, effective_tier=effective_tier)
-
     if not (passed and decision):
+        logger.commit(
+            proposal,
+            passed=passed,
+            reason=reason,
+            human_decision=decision,
+            effective_tier=effective_tier,
+            resolved_binaries=resolved_bins,
+            env_scrubbed=False,
+            timeout_fired=False,
+        )
         err_msg = reason if not passed else "Execution rejected by operator."
         return False, err_msg, -1
 
-    # Record successful admission in rate-limiter state
     active_limiter.record(effective_tier)
 
-    res = subprocess.run(
-        proposal.command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    # Process containment & environment scrubbing
+    exec_env = os.environ.copy()
+    was_scrubbed = False
+    if cfg.process.scrub_env:
+        was_scrubbed = True
+        allowed_keys = set(cfg.process.env_allow)
+        exec_env = {k: v for k, v in exec_env.items() if k in allowed_keys}
+
+    timeout_occurred = False
+    stdout_data, stderr_data = "", ""
+    return_code = 0
+
+    try:
+        proc = subprocess.Popen(
+            proposal.command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=exec_env,
+            start_new_session=True if hasattr(os, "setsid") else False,
+        )
+        stdout_data, stderr_data = proc.communicate(timeout=cfg.process.timeout_seconds)
+        return_code = proc.returncode
+    except subprocess.TimeoutExpired:
+        timeout_occurred = True
+        if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+        else:
+            proc.kill()
+        proc.communicate()
+        return_code = -1
+
+    logger.commit(
+        proposal,
+        passed=True,
+        reason=reason,
+        human_decision=decision,
+        effective_tier=effective_tier,
+        resolved_binaries=resolved_bins,
+        env_scrubbed=was_scrubbed,
+        timeout_fired=timeout_occurred,
     )
-    output = res.stdout if res.returncode == 0 else res.stderr
-    return True, output, res.returncode
+
+    if timeout_occurred:
+        return False, f"Command execution timed out after {cfg.process.timeout_seconds}s.", -1
+
+    output = stdout_data if return_code == 0 else stderr_data
+    return True, output, return_code
 
 
 def main():

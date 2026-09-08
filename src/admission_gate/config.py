@@ -43,6 +43,18 @@ class RateLimitConfig:
     tier3_cooldown_seconds: float = 3.0  # Quiescent period after Tier 3 commands
 
 
+
+DEFAULT_ENV_ALLOW = [
+    "PATH", "HOME", "LANG", "TERM", "USER", "SHELL", "TMPDIR", "VIRTUAL_ENV"
+]
+
+
+@dataclass
+class ProcessConfig:
+    timeout_seconds: float = 30.0
+    scrub_env: bool = True
+    env_allow: List[str] = field(default_factory=lambda: list(DEFAULT_ENV_ALLOW))
+
 @dataclass
 class GateConfig:
     blocked_patterns: List[str] = field(
@@ -71,6 +83,7 @@ class GateConfig:
     require_confirm: bool = True
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     exec_policy: ExecConfig = field(default_factory=ExecConfig)
+    process: ProcessConfig = field(default_factory=ProcessConfig)
 
     @classmethod
     def load_from_file(cls, path: str) -> "GateConfig":
@@ -125,6 +138,14 @@ class GateConfig:
             cfg.exec_policy.allow = list(ep["allow"])
         if "deny" in ep:
             cfg.exec_policy.deny = list(ep["deny"])
+
+        pr = data.get("process", {})
+        if "timeout_seconds" in pr:
+            cfg.process.timeout_seconds = float(pr["timeout_seconds"])
+        if "scrub_env" in pr:
+            cfg.process.scrub_env = bool(pr["scrub_env"])
+        if "env_allow" in pr:
+            cfg.process.env_allow = list(pr["env_allow"])
 
         return cfg
 

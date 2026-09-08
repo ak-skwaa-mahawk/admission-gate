@@ -2,7 +2,7 @@
 admission_gate - Deterministic admission control and cryptographic audit logging for CLI agents.
 """
 
-from admission_gate.config import ExecConfig, GateConfig, RateLimitConfig
+from admission_gate.config import ExecConfig, GateConfig, ProcessConfig, RateLimitConfig
 from admission_gate.gate import (
     ActionProposal,
     AuditLogger,
@@ -19,6 +19,7 @@ __all__ = [
     "AuditLogger",
     "ExecConfig",
     "GateConfig",
+    "ProcessConfig",
     "PolicyEngine",
     "RateLimitConfig",
     "RateLimiter",
