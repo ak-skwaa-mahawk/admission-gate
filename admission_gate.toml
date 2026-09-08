@@ -1,5 +1,4 @@
 [policy]
-# Substring patterns rejected before any execution
 blocked_patterns = [
     "rm -rf /",
     ":(){ :|:& };:",
@@ -7,27 +6,28 @@ blocked_patterns = [
     "> /dev/null",
     "mkfs",
 ]
-
-# Set to false to bypass interactive [y/N] prompts (policy checks still enforced)
 require_confirm = true
 
 [filesystem]
-# Confine execution strictly inside these directory boundaries
 allowed_roots = [
     "./workspace",
     "./scratch",
 ]
-
-# Protected system paths that can never be targeted
 protected_paths = [
     "/etc",
     "/boot",
     "/sys",
     "/dev",
     "/proc",
-    "C:\\Windows",
-    "C:\\Windows\\System32",
+    "C:\\\\Windows",
+    "C:\\\\Windows\\\\System32",
 ]
 
 [logging]
 log_file = "audit_log.jsonl"
+
+[rate_limit]
+enabled = true
+max_requests_per_minute = 30
+burst_threshold = 10
+tier3_cooldown_seconds = 3.0
