@@ -46,6 +46,11 @@ class PolicyEngine:
         r">\([^\)]*\)",  # >(cmd)
     ]
 
+    ENV_VAR_PATTERNS = [
+        r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?",  # $VAR or ${VAR}
+        r"%[A-Za-z_][A-Za-z0-9_]*%",        # %VAR% (Windows)
+    ]
+
     TIER_3_COMMANDS = {
         "rm", "mv", "chmod", "chown", "dd", "truncate",
         "kill", "pkill", "systemctl", "mkfs", "fdisk", "shred"
@@ -133,7 +138,7 @@ class PolicyEngine:
         except ValueError:
             return paths
 
-        path_prefixes = ("/", "./", "../", "~")
+        path_prefixes = ("/", "./", "../", "~", "$", "%")
         for idx, token in enumerate(tokens):
             if token in (">", ">>", "<") and idx + 1 < len(tokens):
                 paths.add(tokens[idx + 1])
@@ -150,6 +155,8 @@ class PolicyEngine:
                 or (len(clean_token) > 2 and clean_token[1:3] == ":\\")
                 or "/" in clean_token
                 or "\\" in clean_token
+                or "$" in clean_token
+                or "%" in clean_token
             ):
                 paths.add(clean_token)
 
@@ -194,6 +201,15 @@ class PolicyEngine:
         paths_to_check = {proposal.target_path} | cls._extract_command_paths(proposal.command)
 
         for raw_path in paths_to_check:
+            # Check for unexpanded environment variable indirection in paths
+            for var_pat in cls.ENV_VAR_PATTERNS:
+                if re.search(var_pat, raw_path):
+                    return (
+                        False,
+                        f"Blocked: unexpanded environment variable detected in path '{raw_path}'",
+                        effective_tier,
+                    )
+
             norm_path = cls._canonicalize(raw_path)
 
             for raw_protected in active_protected:
@@ -323,7 +339,6 @@ def gated_shell(
     passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
 
     if verify_only:
-        # Commit evaluation to audit log with human_accepted: null
         logger.commit(proposal, passed, reason, human_decision=None, effective_tier=effective_tier)
         return passed, reason, 0 if passed else -1
 
