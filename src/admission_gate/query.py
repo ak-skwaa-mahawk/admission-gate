@@ -211,6 +211,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Forensic query and replay tool for admission-gate audit logs."
     )
+    parser.add_argument("--verify", action="store_true", help="Verify SHA-256 ledger integrity")
     parser.add_argument(
         "--log-file",
         default="audit_log.jsonl",
@@ -235,6 +236,24 @@ def main():
         help="Path to TOML configuration file for replay mode",
     )
     args = parser.parse_args()
+
+    cfg_file = args.config or find_default_config()
+    default_log = "audit_log.jsonl"
+    if cfg_file and os.path.exists(cfg_file):
+        try:
+            c = GateConfig.load_from_file(cfg_file)
+            default_log = c.log_file
+        except Exception:
+            pass
+    log_path = args.log_file or default_log
+
+    if args.verify:
+        ok = verify_hash_chain(log_path)
+        sys.exit(0 if ok else 1)
+
+    if args.replay:
+        run_replay(log_path, args.config)
+        return
 
     since_ts = parse_relative_time(args.since) if args.since else None
     until_ts = parse_relative_time(args.until) if args.until else None
