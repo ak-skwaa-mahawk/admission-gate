@@ -220,3 +220,41 @@ print(f"Chain Integrity: {is_valid} | Records: {count} | Error: {error}")
 
 State Recovery
 ​fpt-daemon persists state atomically on every cycle to ~/.fpt_daemon_state.json using atomic rename swaps (os.replace). Upon daemon initialization or system reboot, the sliding telemetry window, cycle counter, accumulated error integrals, and damping factor (\sigma) are restored without resetting the security posture.
+
+## Control-Theoretic Formal Specification & Stability Analysis
+
+The feedback regulator (`Fpt_kernel_daem_sqaw` / `kpt_kernel`) treats policy violations as an adversarial error perturbation and actuates friction to bound execution envelope expansion.
+
+### 1. Dynamical Formulation
+For decision epochs $k \in \mathbb{N}$ with observed penalty $p_k \in [0, 1]$ and nominal target $r = 0$:
+$$e_k = p_k \in [0, 1]$$
+$$u_k = K_p e_k + K_i I_k + K_d (e_k - e_{k-1})$$
+$$\sigma_k = S(u_k) = \frac{1}{1 + \exp(-\alpha (u_k - u_0))}$$
+
+### 2. Anti-Windup Clamping Invariant
+The discrete-time integrator is bounded by a leaky saturation operator:
+$$I_{k+1} = \mathrm{sat}_{[-I_{\max}, I_{\max}]}(\gamma I_k + e_k \Delta t), \quad \gamma \in (0, 1)$$
+$$\sup_{k \ge 0} |I_k| \le I_{\max}$$
+Integrator windup is prevented under persistent violation sequences ($e_k = 1$).
+
+### 3. Bounded Input Bounded State (BIBS) Stability
+Given $e_k \in [0, 1]$ and $|I_k| \le I_{\max}$, the control signal is strictly bounded:
+$$u_{\min} = -K_i I_{\max} - K_d \le u_k \le K_p + K_i I_{\max} + K_d = u_{\max}$$
+Because $u_k \in [u_{\min}, u_{\max}]$ is finite, damping factor $\sigma_k$ satisfies:
+$$0 < \sigma_{\min} \le \sigma_k \le \sigma_{\max} < 1$$
+Degeneracy into unconstrained execution ($\sigma \to 0$) or deadlock singularity ($\sigma \to 1$) is mathematically precluded.
+
+### 4. Exponential Stability Under Nominal Flow
+For epochs $k \ge k_0$ where no policy violations occur ($e_k = 0$), the unforced Lyapunov candidate $V(I_k) = I_k^2$ yields:
+$$\Delta V(I_k) = (\gamma^2 - 1) I_k^2 \le -c I_k^2 \quad (c > 0)$$
+The error accumulator converges asymptotically to $0$, relaxing steady-state damping to baseline:
+$$\sigma^* = \frac{1}{1 + \exp(\alpha u_0)} < 0.85$$
+
+### 5. Actuation Envelope Saturation
+| Parameter | Transfer Function | Operational Range |
+| :--- | :--- | :--- |
+| Burst Allowance | $\max(1, \mathrm{round}(B_{\mathrm{base}} \cdot (1 - 0.8\sigma_k)))$ | $[1, B_{\mathrm{base}}]$ |
+| Cooldown Duration | $\tau_{\min} + (\tau_{\max} - \tau_{\min})\sigma_k$ | $[\tau_{\min}, \tau_{\max}]$ |
+| Execution Timeout | $\tau_{\mathrm{exec,base}} \cdot (1.0 - 0.7\sigma_k)$ | $[0.3\tau_{\mathrm{base}}, \tau_{\mathrm{base}}]$ |
+| Sovereign Clearance | $\mathbf{1}_{(\sigma_k > 0.85)}$ | Gatekeeper Active |
+| Path Quarantine | $\mathbf{1}_{(\sigma_k > 0.92)} \implies \mathrm{Roots} = \{\text{"./scratch"}\}$ | Isolated |
