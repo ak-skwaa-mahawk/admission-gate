@@ -16,7 +16,15 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Deque, List, Optional, Set, Tuple
 
-from admission_gate.config import GateConfig, RateLimitConfig, find_default_config
+import shutil
+from admission_gate.config import (
+    DEFAULT_ALLOWED_BINARIES,
+    DEFAULT_DENIED_BINARIES,
+    ExecConfig,
+    GateConfig,
+    RateLimitConfig,
+    find_default_config,
+)
 
 
 @dataclass
@@ -124,6 +132,70 @@ class PolicyEngine:
         "wc", "diff", "echo", "printf", "true", "false", "test"
     }
 
+    MULTIPLEXER_BINARIES = {"coreutils", "busybox", "toybox"}
+
+    @classmethod
+    def resolve_binary(cls, binary_token: str) -> Tuple[Optional[str], str, str]:
+        invoked_base = os.path.basename(binary_token)
+        if os.sep in binary_token or (os.altsep and os.altsep in binary_token) or binary_token.startswith("."):
+            real = cls._canonicalize(binary_token)
+            return real, invoked_base, os.path.basename(real)
+        found = shutil.which(binary_token)
+        if found:
+            real = cls._canonicalize(found)
+            return real, invoked_base, os.path.basename(real)
+        return None, invoked_base, invoked_base
+
+    @classmethod
+    def verify_executables(cls, command: str, exec_config: ExecConfig) -> Tuple[bool, str, List[str]]:
+        segments = re.split(r"[;&|]+", command)
+        resolved_binaries = []
+        allow_set = set(exec_config.allow) if exec_config.allow else set(DEFAULT_ALLOWED_BINARIES)
+        deny_set = set(exec_config.deny) if exec_config.deny is not None else set(DEFAULT_DENIED_BINARIES)
+
+        for segment in segments:
+            seg = segment.strip()
+            if not seg:
+                continue
+            try:
+                tokens = shlex.split(seg, posix=os.name != "nt")
+            except ValueError:
+                return False, "Malformed command tokenization", []
+            if not tokens:
+                continue
+            raw_argv0 = tokens[0]
+            real_path, invoked_base, real_base = cls.resolve_binary(raw_argv0)
+            resolved_binaries.append(real_path or invoked_base)
+
+            for candidate in (invoked_base, real_base, real_path):
+                if candidate and candidate in deny_set:
+                    return False, f"Blocked: binary '{candidate}' is explicitly denied by execution policy", resolved_binaries
+
+            is_allowed = False
+            candidates_to_check = {invoked_base}
+            if real_base not in cls.MULTIPLEXER_BINARIES:
+                candidates_to_check.add(real_base)
+                if real_path:
+                    candidates_to_check.add(real_path)
+
+            for cand in candidates_to_check:
+                if cand in allow_set:
+                    is_allowed = True
+                    break
+                for allowed in allow_set:
+                    if cand.startswith(allowed) and any(c.isdigit() for c in cand[len(allowed):]):
+                        is_allowed = True
+                        break
+                if is_allowed:
+                    break
+
+            if not is_allowed:
+                display_name = invoked_base if invoked_base == real_base else f"{invoked_base} -> {real_base}"
+                res_disp = real_path or "unresolved"
+                return False, f"Blocked: binary '{display_name}' ({res_disp}) is not in execution allowlist", resolved_binaries
+
+        return True, "All binaries verified.", resolved_binaries
+
     @classmethod
     def classify_risk(cls, command: str) -> Tuple[int, str]:
         segments = re.split(r"[;&|]+", command)
@@ -197,7 +269,9 @@ class PolicyEngine:
             return paths
 
         path_prefixes = ("/", "./", "../", "~", "$", "%")
-        for idx, token in enumerate(tokens):
+        # argv[0] is governed by exec_policy, not path confinement
+        operand_tokens = tokens[1:] if len(tokens) > 1 else []
+        for idx, token in enumerate(operand_tokens):
             if token in (">", ">>", "<") and idx + 1 < len(tokens):
                 paths.add(tokens[idx + 1])
                 continue
@@ -207,6 +281,10 @@ class PolicyEngine:
                 clean_token = clean_token[2:]
             elif clean_token.startswith(">") or clean_token.startswith("<"):
                 clean_token = clean_token[1:]
+
+            # Skip URLs
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", clean_token):
+                continue
 
             if (
                 clean_token.startswith(path_prefixes)
@@ -229,35 +307,29 @@ class PolicyEngine:
         protected_paths: Optional[List[str]] = None,
         config: Optional[GateConfig] = None,
     ) -> Tuple[bool, str, int]:
-        active_blocked = (
-            config.blocked_patterns
-            if config
-            else (blocked_patterns if blocked_patterns is not None else cls.DEFAULT_BLOCKED_PATTERNS)
-        )
-        active_protected = (
-            config.protected_paths
-            if config
-            else (protected_paths if protected_paths is not None else cls.DEFAULT_PROTECTED_PATHS)
-        )
-        active_allowed = (
-            allowed_roots
-            if allowed_roots is not None
-            else (config.allowed_roots if config else None)
-        )
+        active_config = config or GateConfig()
+        if allowed_roots is not None:
+            active_config.allowed_roots = allowed_roots
+        if blocked_patterns is not None:
+            active_config.blocked_patterns = blocked_patterns
+        if protected_paths is not None:
+            active_config.protected_paths = protected_paths
 
-        inferred_tier, tier_reason = cls.classify_risk(proposal.command)
+        inferred_tier, _ = cls.classify_risk(proposal.command)
         effective_tier = max(proposal.risk_tier, inferred_tier)
 
-        for pattern in active_blocked:
+        # 1. Blocked Pattern Checks
+        for pattern in active_config.blocked_patterns:
             if pattern in proposal.command:
                 return False, f"Blocked: matched hazardous pattern '{pattern}'", effective_tier
 
+        # 2. Metacharacter & Subshell Substitution Checks
         for sub_pat in cls.SUBSHELL_PATTERNS:
             if re.search(sub_pat, proposal.command):
                 return False, f"Blocked: metacharacter or subshell substitution detected matching '{sub_pat}'", effective_tier
 
+        # 3. Environment Variable Evasion Checks
         paths_to_check = {proposal.target_path} | cls._extract_command_paths(proposal.command)
-
         for raw_path in paths_to_check:
             for var_pat in cls.ENV_VAR_PATTERNS:
                 if re.search(var_pat, raw_path):
@@ -267,9 +339,18 @@ class PolicyEngine:
                         effective_tier,
                     )
 
+        # 4. Executable Allowlist / Denylist Check
+        exec_ok, exec_reason, _ = cls.verify_executables(
+            proposal.command, active_config.exec_policy
+        )
+        if not exec_ok:
+            return False, exec_reason, effective_tier
+
+        # 5. Path Jail & Protected Paths Checks
+        for raw_path in paths_to_check:
             norm_path = cls._canonicalize(raw_path)
 
-            for raw_protected in active_protected:
+            for raw_protected in active_config.protected_paths:
                 protected_norm = cls._canonicalize(raw_protected)
                 if cls._is_within(norm_path, protected_norm):
                     return (
@@ -278,15 +359,15 @@ class PolicyEngine:
                         effective_tier,
                     )
 
-            if active_allowed:
+            if active_config.allowed_roots:
                 in_allowed = False
-                for raw_allowed in active_allowed:
+                for raw_allowed in active_config.allowed_roots:
                     allowed_norm = cls._canonicalize(raw_allowed)
                     if cls._is_within(norm_path, allowed_norm):
                         in_allowed = True
                         break
                 if not in_allowed:
-                    allowed_str = ", ".join(active_allowed)
+                    allowed_str = ", ".join(active_config.allowed_roots)
                     return (
                         False,
                         f"Blocked: path '{raw_path}' escapes allowed roots ({allowed_str})",
@@ -398,6 +479,7 @@ def gated_shell(
 
     logger = AuditLogger(log_path=cfg.log_file)
     passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
+    _, _, resolved_bins = PolicyEngine.verify_executables(proposal.command, cfg.exec_policy)
 
     # Apply rate limiting & burst checks if policy passed
     rate_ok, force_confirm, rate_reason = active_limiter.check(effective_tier)

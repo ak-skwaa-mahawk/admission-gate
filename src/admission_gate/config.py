@@ -17,6 +17,24 @@ except ImportError:
         tomllib = None
 
 
+
+DEFAULT_ALLOWED_BINARIES = [
+    "git", "python", "python3", "pytest", "ls", "cat", "head",
+    "tail", "grep", "diff", "echo", "pwd", "which", "find", "stat",
+    "wc", "rm", "mv", "cp", "touch", "mkdir", "true", "type", "file"
+]
+
+DEFAULT_DENIED_BINARIES = [
+    "curl", "wget", "nc", "netcat", "ssh", "scp", "sftp", "nmap",
+    "socat", "telnet", "ftp", "rsync"
+]
+
+
+@dataclass
+class ExecConfig:
+    allow: List[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_BINARIES))
+    deny: List[str] = field(default_factory=lambda: list(DEFAULT_DENIED_BINARIES))
+
 @dataclass
 class RateLimitConfig:
     enabled: bool = True
@@ -50,6 +68,7 @@ class GateConfig:
     log_file: str = "audit_log.jsonl"
     require_confirm: bool = True
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    exec_policy: ExecConfig = field(default_factory=ExecConfig)
 
     @classmethod
     def load_from_file(cls, path: str) -> "GateConfig":
@@ -89,6 +108,12 @@ class GateConfig:
             cfg.rate_limit.burst_threshold = int(rl["burst_threshold"])
         if "tier3_cooldown_seconds" in rl:
             cfg.rate_limit.tier3_cooldown_seconds = float(rl["tier3_cooldown_seconds"])
+
+        ep = data.get("exec", {})
+        if "allow" in ep:
+            cfg.exec_policy.allow = list(ep["allow"])
+        if "deny" in ep:
+            cfg.exec_policy.deny = list(ep["deny"])
 
         return cfg
 
