@@ -12,10 +12,11 @@ import shlex
 import subprocess
 import sys
 import time
+from collections import deque
 from dataclasses import asdict, dataclass
-from typing import List, Optional, Set, Tuple
+from typing import Deque, List, Optional, Set, Tuple
 
-from admission_gate.config import GateConfig, find_default_config
+from admission_gate.config import GateConfig, RateLimitConfig, find_default_config
 
 
 @dataclass
@@ -24,6 +25,67 @@ class ActionProposal:
     command: str
     target_path: str
     risk_tier: int = 1  # 1 = Low, 2 = Medium, 3 = High
+
+
+class RateLimiter:
+    """Zero-dependency in-memory sliding-window rate limiter and burst controller."""
+
+    def __init__(self, config: Optional[RateLimitConfig] = None):
+        self.config = config or RateLimitConfig()
+        self.history: Deque[float] = deque()
+        self.last_tier3_time: float = 0.0
+
+    def check(self, risk_tier: int) -> Tuple[bool, bool, str]:
+        """
+        Evaluates current request rate against window thresholds.
+        Returns:
+            (is_allowed: bool, force_confirm: bool, reason: str)
+        """
+        if not self.config.enabled:
+            return True, False, "Rate limiting disabled."
+
+        now = time.monotonic()
+
+        # Enforce Tier 3 cooldown
+        cooldown_rem = (self.last_tier3_time + self.config.tier3_cooldown_seconds) - now
+        if cooldown_rem > 0:
+            return (
+                False,
+                False,
+                f"Rate limit: Tier 3 cooldown active ({cooldown_rem:.1f}s remaining)",
+            )
+
+        # Evict timestamps outside sliding window (60 seconds)
+        window = 60.0
+        while self.history and self.history[0] <= now - window:
+            self.history.popleft()
+
+        # Hard velocity limit check
+        if len(self.history) >= self.config.max_requests_per_minute:
+            return (
+                False,
+                False,
+                f"Rate limit exceeded: {len(self.history)} actions in {window:.0f}s "
+                f"(max {self.config.max_requests_per_minute})",
+            )
+
+        # Burst check: force human confirmation on sudden velocity spike
+        recent_10s = sum(1 for t in self.history if t > now - 10.0)
+        force_confirm = recent_10s >= self.config.burst_threshold
+
+        return True, force_confirm, "Rate check passed."
+
+    def record(self, risk_tier: int):
+        if not self.config.enabled:
+            return
+        now = time.monotonic()
+        self.history.append(now)
+        if risk_tier >= 3:
+            self.last_tier3_time = now
+
+
+# Shared process-level rate limiter instance
+_DEFAULT_LIMITER = RateLimiter()
 
 
 class PolicyEngine:
@@ -64,10 +126,6 @@ class PolicyEngine:
 
     @classmethod
     def classify_risk(cls, command: str) -> Tuple[int, str]:
-        """
-        Infers the minimum risk tier (1-3) based on command structure, arguments, and binaries.
-        Returns (computed_tier, justification).
-        """
         segments = re.split(r"[;&|]+", command)
         max_tier = 1
         reasons = []
@@ -201,7 +259,6 @@ class PolicyEngine:
         paths_to_check = {proposal.target_path} | cls._extract_command_paths(proposal.command)
 
         for raw_path in paths_to_check:
-            # Check for unexpanded environment variable indirection in paths
             for var_pat in cls.ENV_VAR_PATTERNS:
                 if re.search(var_pat, raw_path):
                     return (
@@ -326,6 +383,7 @@ def gated_shell(
     require_confirm: Optional[bool] = None,
     config: Optional[GateConfig] = None,
     verify_only: bool = False,
+    limiter: Optional[RateLimiter] = None,
 ) -> Tuple[bool, str, int]:
     cfg = config or GateConfig()
     if allowed_roots is not None:
@@ -335,8 +393,17 @@ def gated_shell(
     if require_confirm is not None:
         cfg.require_confirm = require_confirm
 
+    active_limiter = limiter or _DEFAULT_LIMITER
+    active_limiter.config = cfg.rate_limit
+
     logger = AuditLogger(log_path=cfg.log_file)
     passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
+
+    # Apply rate limiting & burst checks if policy passed
+    rate_ok, force_confirm, rate_reason = active_limiter.check(effective_tier)
+    if not rate_ok:
+        passed = False
+        reason = rate_reason
 
     if verify_only:
         logger.commit(proposal, passed, reason, human_decision=None, effective_tier=effective_tier)
@@ -344,9 +411,11 @@ def gated_shell(
 
     decision = None
     if passed:
-        if cfg.require_confirm:
+        needs_confirm = cfg.require_confirm or force_confirm
+        if needs_confirm:
+            spike_warn = " [BURST ESCALATION]" if force_confirm and not cfg.require_confirm else ""
             msg = (
-                f"[Agent Gate] Authorize [Tier {effective_tier}] command '{proposal.command}' "
+                f"[Agent Gate]{spike_warn} Authorize [Tier {effective_tier}] command '{proposal.command}' "
                 f"on target '{proposal.target_path}'? [y/N]: "
             )
             decision = _prompt_tty(msg)
@@ -360,6 +429,9 @@ def gated_shell(
     if not (passed and decision):
         err_msg = reason if not passed else "Execution rejected by operator."
         return False, err_msg, -1
+
+    # Record successful admission in rate-limiter state
+    active_limiter.record(effective_tier)
 
     res = subprocess.run(
         proposal.command,

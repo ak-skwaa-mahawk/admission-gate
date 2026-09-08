@@ -11,11 +11,18 @@ from typing import List, Optional
 try:
     import tomllib
 except ImportError:
-    # Python < 3.11 fallback or try tomli if installed
     try:
         import tomli as tomllib  # type: ignore
     except ImportError:
         tomllib = None
+
+
+@dataclass
+class RateLimitConfig:
+    enabled: bool = True
+    max_requests_per_minute: int = 30
+    burst_threshold: int = 10  # Velocity spike forcing confirmation
+    tier3_cooldown_seconds: float = 3.0  # Quiescent period after Tier 3 commands
 
 
 @dataclass
@@ -42,6 +49,7 @@ class GateConfig:
     allowed_roots: List[str] = field(default_factory=list)
     log_file: str = "audit_log.jsonl"
     require_confirm: bool = True
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
     @classmethod
     def load_from_file(cls, path: str) -> "GateConfig":
@@ -54,27 +62,33 @@ class GateConfig:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
         else:
-            # Minimal fallback TOML parser for basic list/scalar parsing
             data = _parse_simple_toml(path)
 
-        # Merge policy section
         policy = data.get("policy", {})
         if "blocked_patterns" in policy:
             cfg.blocked_patterns = list(policy["blocked_patterns"])
         if "require_confirm" in policy:
             cfg.require_confirm = bool(policy["require_confirm"])
 
-        # Merge filesystem section
         fs = data.get("filesystem", {})
         if "protected_paths" in fs:
             cfg.protected_paths = list(fs["protected_paths"])
         if "allowed_roots" in fs:
             cfg.allowed_roots = list(fs["allowed_roots"])
 
-        # Merge logging section
         logging = data.get("logging", {})
         if "log_file" in logging:
             cfg.log_file = str(logging["log_file"])
+
+        rl = data.get("rate_limit", {})
+        if "enabled" in rl:
+            cfg.rate_limit.enabled = bool(rl["enabled"])
+        if "max_requests_per_minute" in rl:
+            cfg.rate_limit.max_requests_per_minute = int(rl["max_requests_per_minute"])
+        if "burst_threshold" in rl:
+            cfg.rate_limit.burst_threshold = int(rl["burst_threshold"])
+        if "tier3_cooldown_seconds" in rl:
+            cfg.rate_limit.tier3_cooldown_seconds = float(rl["tier3_cooldown_seconds"])
 
         return cfg
 
@@ -98,7 +112,6 @@ def _parse_simple_toml(path: str) -> dict:
                 key = key.strip()
                 val = val.strip()
                 if val.startswith("[") and val.endswith("]"):
-                    # Parse array of strings
                     raw_items = val[1:-1].split(",")
                     items = [
                         i.strip().strip("\"'")
@@ -108,13 +121,14 @@ def _parse_simple_toml(path: str) -> dict:
                     current_section[key] = items
                 elif val.lower() in ("true", "false"):
                     current_section[key] = val.lower() == "true"
+                elif val.replace(".", "", 1).isdigit():
+                    current_section[key] = float(val) if "." in val else int(val)
                 else:
                     current_section[key] = val.strip("\"'")
     return result
 
 
 def find_default_config() -> Optional[str]:
-    """Finds admission_gate.toml in current working directory or ancestors."""
     cur = os.getcwd()
     candidate = os.path.join(cur, "admission_gate.toml")
     if os.path.isfile(candidate):
