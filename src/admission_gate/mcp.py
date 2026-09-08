@@ -62,7 +62,7 @@ class MCPServer:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "admission-gate",
-                        "version": "0.2.0",
+                        "version": "0.3.0",
                     },
                 },
             }

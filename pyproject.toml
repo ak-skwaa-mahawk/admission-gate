@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "admission-gate"
-version = "0.2.0"
+version = "0.3.0"
 description = "Deterministic admission gate with human review and cryptographic audit logging for CLI agents."
 readme = "README.md"
 requires-python = ">=3.8"
