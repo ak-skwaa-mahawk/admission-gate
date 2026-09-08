@@ -306,14 +306,27 @@ class PolicyEngine:
         blocked_patterns: Optional[List[str]] = None,
         protected_paths: Optional[List[str]] = None,
         config: Optional[GateConfig] = None,
+        read_roots: Optional[List[str]] = None,
+        write_roots: Optional[List[str]] = None,
     ) -> Tuple[bool, str, int]:
         active_config = config or GateConfig()
         if allowed_roots is not None:
             active_config.allowed_roots = allowed_roots
+        if read_roots is not None:
+            active_config.read_roots = read_roots
+        if write_roots is not None:
+            active_config.write_roots = write_roots
         if blocked_patterns is not None:
             active_config.blocked_patterns = blocked_patterns
         if protected_paths is not None:
             active_config.protected_paths = protected_paths
+
+        # Determine effective roots (fall back to legacy allowed_roots if not configured)
+        effective_read = list(active_config.read_roots)
+        effective_write = list(active_config.write_roots)
+        if not effective_read and not effective_write and active_config.allowed_roots:
+            effective_read = list(active_config.allowed_roots)
+            effective_write = list(active_config.allowed_roots)
 
         inferred_tier, _ = cls.classify_risk(proposal.command)
         effective_tier = max(proposal.risk_tier, inferred_tier)
@@ -359,20 +372,38 @@ class PolicyEngine:
                         effective_tier,
                     )
 
-            if active_config.allowed_roots:
-                in_allowed = False
-                for raw_allowed in active_config.allowed_roots:
-                    allowed_norm = cls._canonicalize(raw_allowed)
-                    if cls._is_within(norm_path, allowed_norm):
-                        in_allowed = True
-                        break
-                if not in_allowed:
-                    allowed_str = ", ".join(active_config.allowed_roots)
-                    return (
-                        False,
-                        f"Blocked: path '{raw_path}' escapes allowed roots ({allowed_str})",
-                        effective_tier,
-                    )
+            # Split Root Confinement
+            if effective_read or effective_write:
+                if effective_tier == 1:
+                    # Tier 1 reads are permitted in read_roots UNION write_roots
+                    allowed_pool = effective_read + [w for w in effective_write if w not in effective_read]
+                    in_pool = any(cls._is_within(norm_path, cls._canonicalize(r)) for r in allowed_pool)
+                    if not in_pool:
+                        pool_str = ", ".join(allowed_pool)
+                        if active_config.allowed_roots and not active_config.read_roots and not active_config.write_roots:
+                            err = f"Blocked: path '{raw_path}' escapes allowed roots ({pool_str})"
+                        else:
+                            err = f"Blocked: path '{raw_path}' escapes read boundaries ({pool_str})"
+                        return False, err, effective_tier
+                else:
+                    # Tier 2/3 mutations require strictly write_roots
+                    if effective_write:
+                        in_write = any(cls._is_within(norm_path, cls._canonicalize(w)) for w in effective_write)
+                        if not in_write:
+                            # Check if it was in read_roots for clearer error reporting
+                            in_read = any(cls._is_within(norm_path, cls._canonicalize(r)) for r in effective_read)
+                            if in_read:
+                                return (
+                                    False,
+                                    f"Blocked: mutating/destructive action targets read-only root '{raw_path}'",
+                                    effective_tier,
+                                )
+                            write_str = ", ".join(effective_write)
+                            if active_config.allowed_roots and not active_config.read_roots and not active_config.write_roots:
+                                err = f"Blocked: path '{raw_path}' escapes allowed roots ({write_str})"
+                            else:
+                                err = f"Blocked: path '{raw_path}' escapes write_roots ({write_str})"
+                            return False, err, effective_tier
 
         if proposal.risk_tier not in (1, 2, 3):
             return False, "Blocked: invalid risk tier (must be 1, 2, or 3)", effective_tier
@@ -460,6 +491,8 @@ def evaluate(
 def gated_shell(
     proposal: ActionProposal,
     allowed_roots: Optional[List[str]] = None,
+    read_roots: Optional[List[str]] = None,
+    write_roots: Optional[List[str]] = None,
     log_path: Optional[str] = None,
     require_confirm: Optional[bool] = None,
     config: Optional[GateConfig] = None,
@@ -469,6 +502,10 @@ def gated_shell(
     cfg = config or GateConfig()
     if allowed_roots is not None:
         cfg.allowed_roots = allowed_roots
+    if read_roots is not None:
+        cfg.read_roots = read_roots
+    if write_roots is not None:
+        cfg.write_roots = write_roots
     if log_path is not None:
         cfg.log_file = log_path
     if require_confirm is not None:

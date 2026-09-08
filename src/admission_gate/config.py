@@ -65,6 +65,8 @@ class GateConfig:
         ]
     )
     allowed_roots: List[str] = field(default_factory=list)
+    read_roots: List[str] = field(default_factory=list)
+    write_roots: List[str] = field(default_factory=list)
     log_file: str = "audit_log.jsonl"
     require_confirm: bool = True
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
@@ -94,6 +96,15 @@ class GateConfig:
             cfg.protected_paths = list(fs["protected_paths"])
         if "allowed_roots" in fs:
             cfg.allowed_roots = list(fs["allowed_roots"])
+        if "read_roots" in fs:
+            cfg.read_roots = list(fs["read_roots"])
+        if "write_roots" in fs:
+            cfg.write_roots = list(fs["write_roots"])
+
+        # Backward-compatibility fallback
+        if cfg.allowed_roots and not cfg.read_roots and not cfg.write_roots:
+            cfg.read_roots = list(cfg.allowed_roots)
+            cfg.write_roots = list(cfg.allowed_roots)
 
         logging = data.get("logging", {})
         if "log_file" in logging:
