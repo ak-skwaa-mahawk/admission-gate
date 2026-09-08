@@ -67,7 +67,6 @@ class PolicyEngine:
         max_tier = 1
         reasons = []
 
-        # Check for output redirection anywhere in command
         if re.search(r"(?:^|[^<])>{1,2}", command):
             max_tier = max(max_tier, 2)
             reasons.append("output redirection detected")
@@ -87,13 +86,11 @@ class PolicyEngine:
 
             binary = os.path.basename(tokens[0])
 
-            # In-place sed check
             if binary == "sed" and any(arg.startswith("-i") or arg == "--in-place" for arg in tokens[1:]):
                 max_tier = max(max_tier, 3)
                 reasons.append("sed in-place edit (-i)")
                 continue
 
-            # Destructive checks
             if binary in cls.TIER_3_COMMANDS:
                 max_tier = max(max_tier, 3)
                 reasons.append(f"destructive binary '{binary}'")
@@ -312,6 +309,7 @@ def gated_shell(
     log_path: Optional[str] = None,
     require_confirm: Optional[bool] = None,
     config: Optional[GateConfig] = None,
+    verify_only: bool = False,
 ) -> Tuple[bool, str, int]:
     cfg = config or GateConfig()
     if allowed_roots is not None:
@@ -323,6 +321,11 @@ def gated_shell(
 
     logger = AuditLogger(log_path=cfg.log_file)
     passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
+
+    if verify_only:
+        # Commit evaluation to audit log with human_accepted: null
+        logger.commit(proposal, passed, reason, human_decision=None, effective_tier=effective_tier)
+        return passed, reason, 0 if passed else -1
 
     decision = None
     if passed:
@@ -378,6 +381,11 @@ def main():
         action="store_true",
         help="Bypass interactive TTY confirmation (policy checks still enforced)",
     )
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="Evaluate and audit proposal without executing command or prompting TTY",
+    )
     args = parser.parse_args()
 
     config_file = args.config or find_default_config()
@@ -398,7 +406,8 @@ def main():
         config.require_confirm = False
 
     logger = AuditLogger(log_path=config.log_file)
-    print(f"[Agent Gate] Online. Log: {config.log_file} (Tip: {logger.last_hash[:16]}...)")
+    mode_desc = "Verify-Only" if args.verify_only else "Active Gate"
+    print(f"[Agent Gate] Online ({mode_desc}). Log: {config.log_file} (Tip: {logger.last_hash[:16]}...)")
     if config.allowed_roots:
         print(f"[Policy] Sandboxed roots: {', '.join(config.allowed_roots)}")
 
@@ -415,7 +424,9 @@ def main():
                     target_path=str(data["target_path"]),
                     risk_tier=int(data.get("risk_tier", 1)),
                 )
-                executed, out, code = gated_shell(proposal, config=config)
+                executed, out, code = gated_shell(
+                    proposal, config=config, verify_only=args.verify_only
+                )
                 status = f"Code {code}" if executed else "Blocked"
                 print(f"Result [{proposal.action_id}]: {status} - {out.strip()}")
             except Exception as e:
