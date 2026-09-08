@@ -39,13 +39,74 @@ class PolicyEngine:
         "C:\\Windows\\System32",
     ]
 
-    # Metacharacters that allow hidden indirect subshell execution
     SUBSHELL_PATTERNS = [
         r"\$\(.*\)",     # $(cmd)
         r"`.*`",         # `cmd`
         r"<\(.*\)",     # <(cmd)
         r">\([^\)]*\)",  # >(cmd)
     ]
+
+    TIER_3_COMMANDS = {
+        "rm", "mv", "chmod", "chown", "dd", "truncate",
+        "kill", "pkill", "systemctl", "mkfs", "fdisk", "shred"
+    }
+
+    TIER_1_COMMANDS = {
+        "cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep",
+        "ls", "pwd", "which", "whereis", "find", "stat", "file",
+        "wc", "diff", "echo", "printf", "true", "false", "test"
+    }
+
+    @classmethod
+    def classify_risk(cls, command: str) -> Tuple[int, str]:
+        """
+        Infers the minimum risk tier (1-3) based on command structure, arguments, and binaries.
+        Returns (computed_tier, justification).
+        """
+        segments = re.split(r"[;&|]+", command)
+        max_tier = 1
+        reasons = []
+
+        # Check for output redirection anywhere in command
+        if re.search(r"(?:^|[^<])>{1,2}", command):
+            max_tier = max(max_tier, 2)
+            reasons.append("output redirection detected")
+
+        for segment in segments:
+            seg = segment.strip()
+            if not seg:
+                continue
+
+            try:
+                tokens = shlex.split(seg, posix=os.name != "nt")
+            except ValueError:
+                return 3, "malformed command quotes/syntax"
+
+            if not tokens:
+                continue
+
+            binary = os.path.basename(tokens[0])
+
+            # In-place sed check
+            if binary == "sed" and any(arg.startswith("-i") or arg == "--in-place" for arg in tokens[1:]):
+                max_tier = max(max_tier, 3)
+                reasons.append("sed in-place edit (-i)")
+                continue
+
+            # Destructive checks
+            if binary in cls.TIER_3_COMMANDS:
+                max_tier = max(max_tier, 3)
+                reasons.append(f"destructive binary '{binary}'")
+            elif binary in cls.TIER_1_COMMANDS:
+                pass
+            else:
+                max_tier = max(max_tier, 2)
+                reasons.append(f"mutating or unclassified binary '{binary}'")
+
+        if not reasons:
+            reasons.append("read-only binary match")
+
+        return max_tier, "; ".join(reasons)
 
     @classmethod
     def _canonicalize(cls, path: str) -> str:
@@ -69,29 +130,24 @@ class PolicyEngine:
 
     @classmethod
     def _extract_command_paths(cls, command: str) -> Set[str]:
-        """Extracts candidate filesystem paths and redirection targets from the command string."""
         paths = set()
         try:
             tokens = shlex.split(command, posix=os.name != "nt")
         except ValueError:
-            # Unbalanced quotes or malformed syntax: flag as suspicious
             return paths
 
         path_prefixes = ("/", "./", "../", "~")
         for idx, token in enumerate(tokens):
-            # Check redirection targets: > file, >> file
             if token in (">", ">>", "<") and idx + 1 < len(tokens):
                 paths.add(tokens[idx + 1])
                 continue
 
-            # Strip leading redirection if joined: >file or >>file
             clean_token = token
             if clean_token.startswith(">>"):
                 clean_token = clean_token[2:]
             elif clean_token.startswith(">") or clean_token.startswith("<"):
                 clean_token = clean_token[1:]
 
-            # Heuristic for filesystem path targets
             if (
                 clean_token.startswith(path_prefixes)
                 or (len(clean_token) > 2 and clean_token[1:3] == ":\\")
@@ -110,7 +166,7 @@ class PolicyEngine:
         blocked_patterns: Optional[List[str]] = None,
         protected_paths: Optional[List[str]] = None,
         config: Optional[GateConfig] = None,
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, int]:
         active_blocked = (
             config.blocked_patterns
             if config
@@ -127,32 +183,31 @@ class PolicyEngine:
             else (config.allowed_roots if config else None)
         )
 
-        # 1. Blocked static substrings
+        inferred_tier, tier_reason = cls.classify_risk(proposal.command)
+        effective_tier = max(proposal.risk_tier, inferred_tier)
+
         for pattern in active_blocked:
             if pattern in proposal.command:
-                return False, f"Blocked: matched hazardous pattern '{pattern}'"
+                return False, f"Blocked: matched hazardous pattern '{pattern}'", effective_tier
 
-        # 2. Subshell substitution detection
         for sub_pat in cls.SUBSHELL_PATTERNS:
             if re.search(sub_pat, proposal.command):
-                return False, f"Blocked: metacharacter or subshell substitution detected matching '{sub_pat}'"
+                return False, f"Blocked: metacharacter or subshell substitution detected matching '{sub_pat}'", effective_tier
 
-        # 3. Collect all paths: explicit target_path + any paths detected in the command
         paths_to_check = {proposal.target_path} | cls._extract_command_paths(proposal.command)
 
         for raw_path in paths_to_check:
             norm_path = cls._canonicalize(raw_path)
 
-            # Check protected system directories
             for raw_protected in active_protected:
                 protected_norm = cls._canonicalize(raw_protected)
                 if cls._is_within(norm_path, protected_norm):
                     return (
                         False,
                         f"Blocked: path '{raw_path}' resolves to protected directory '{raw_protected}'",
+                        effective_tier,
                     )
 
-            # Check allowed roots sandbox
             if active_allowed:
                 in_allowed = False
                 for raw_allowed in active_allowed:
@@ -165,13 +220,13 @@ class PolicyEngine:
                     return (
                         False,
                         f"Blocked: path '{raw_path}' escapes allowed roots ({allowed_str})",
+                        effective_tier,
                     )
 
-        # 4. Validate risk tier range
         if proposal.risk_tier not in (1, 2, 3):
-            return False, "Blocked: invalid risk tier (must be 1, 2, or 3)"
+            return False, "Blocked: invalid risk tier (must be 1, 2, or 3)", effective_tier
 
-        return True, "Passed automated policy checks."
+        return True, "Passed automated policy checks.", effective_tier
 
 
 class AuditLogger:
@@ -200,11 +255,13 @@ class AuditLogger:
         passed: bool,
         reason: str,
         human_decision: Optional[bool],
+        effective_tier: int = 1,
     ) -> str:
         payload = {
             "prev_hash": self.last_hash,
             "timestamp_ns": time.time_ns(),
             "proposal": asdict(proposal),
+            "effective_risk_tier": effective_tier,
             "policy_passed": passed,
             "policy_reason": reason,
             "human_accepted": human_decision,
@@ -239,13 +296,14 @@ def evaluate(
     protected_paths: Optional[List[str]] = None,
     config: Optional[GateConfig] = None,
 ) -> Tuple[bool, str]:
-    return PolicyEngine.evaluate(
+    passed, reason, _ = PolicyEngine.evaluate(
         proposal,
         allowed_roots=allowed_roots,
         blocked_patterns=blocked_patterns,
         protected_paths=protected_paths,
         config=config,
     )
+    return passed, reason
 
 
 def gated_shell(
@@ -264,19 +322,22 @@ def gated_shell(
         cfg.require_confirm = require_confirm
 
     logger = AuditLogger(log_path=cfg.log_file)
-    passed, reason = evaluate(proposal, config=cfg)
+    passed, reason, effective_tier = PolicyEngine.evaluate(proposal, config=cfg)
 
     decision = None
     if passed:
         if cfg.require_confirm:
-            msg = f"[Agent Gate] Authorize command '{proposal.command}' on target '{proposal.target_path}'? [y/N]: "
+            msg = (
+                f"[Agent Gate] Authorize [Tier {effective_tier}] command '{proposal.command}' "
+                f"on target '{proposal.target_path}'? [y/N]: "
+            )
             decision = _prompt_tty(msg)
         else:
             decision = True
     else:
         decision = False
 
-    logger.commit(proposal, passed, reason, decision)
+    logger.commit(proposal, passed, reason, decision, effective_tier=effective_tier)
 
     if not (passed and decision):
         err_msg = reason if not passed else "Execution rejected by operator."
