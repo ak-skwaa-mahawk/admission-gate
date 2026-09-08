@@ -5,3 +5,13 @@ dist/
 build/
 *.jsonl
 .pytest_cache/
+# Nested sub-repos managed independently
+Fpt_kernel_daem_sqaw/
+Human_inthe_loop/
+
+# Local execution roots and runtime caches
+workspace/
+scratch/
+repo/
+config/
+examples/fpt_gated_runner.py
