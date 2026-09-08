@@ -1,97 +1,154 @@
-base64 -d << 'EOF' > README.md
-IyBhZG1pc3Npb24tZ2F0ZQoKWyFbQ0ldKGh0dHBzOi8vZ2l0aHViLmNvbS9hay1za3dhYS1tYWhh
-d2svYWRtaXNzaW9uLWdhdGUvYWN0aW9ucy93b3JrZmxvd3MvY2kueW1sL2JhZGdlLnN2ZyldKGh0
-dHBzOi8vZ2l0aHViLmNvbS9hay1za3dhYS1tYWhhd2svYWRtaXNzaW9uLWdhdGUpClshW0xpY2Vu
-c2U6IE1JVF0oaHR0cHM6Ly9pbWcuc2hpZWxkcy5pby9iYWRnZS9MaWNlbnNlLU1JVC15ZWxsb3cu
-c3ZnKV0oaHR0cHM6Ly9vcGVuc291cmNlLm9yZy9saWNlbnNlcy9NSVQpClshW1B5UEldKGh0dHBz
-Oi8vaW1nLnNoaWVsZHMuaW8vcHlwaS92L2FkbWlzc2lvbi1nYXRlKV0oaHR0cHM6Ly9weXBpLm9y
-Zy9wcm9qZWN0L2FkbWlzc2lvbi1nYXRlLykKCkEgemVyby1kZXBlbmRlbmN5LCBkZXRlcm1pbmlz
-dGljIGFkbWlzc2lvbiBzZWN1cml0eSBrZXJuZWwgYW5kIGNyeXB0b2dyYXBoaWMgYXVkaXQgbG9n
-Z2luZyBlbmdpbmUgZm9yIGF1dG9ub21vdXMgQ0xJIGFnZW50cy4KCldoZW4gYXV0b25vbW91cyBz
-Y3JpcHRzIG9yIExMTXMgZXhlY3V0ZSBjb21tYW5kcyBpbiBhIHN1YnNoZWxsLCBkZXZlbG9wZXJz
-IGZhY2UgdHdvIGV4dHJlbWVzOiBmdWxseSBhdXRvbm9tb3VzIGV4ZWN1dGlvbiB0aGF0IHJpc2tz
-IGRlc3RydWN0aXZlIG9wZXJhdGlvbnMsIG9yIHByb21wdCBmYXRpZ3VlIGZyb20gbWljcm8tYXBw
-cm92aW5nIGJlbmlnbiBzdGVwcy4gYGFkbWlzc2lvbi1nYXRlYCBzaXRzIGRpcmVjdGx5IGJldHdl
-ZW4gdGhlIGFnZW50IGFuZCB5b3VyIHNoZWxsOgoKMS4gKipEZXRlcm1pbmlzdGljIFNlY3VyaXR5
-IEtlcm5lbCoqOiBFbmZvcmNlcyBzYW5kYm94IGphaWxzLCBibG9ja3MgaGF6YXJkb3VzIHRva2Vu
-cywgYW5kIGNhbm9uaWNhbGl6ZXMgcGF0aHMgKGBvcy5wYXRoLnJlYWxwYXRoYCkgYWNyb3NzIGFs
-bCBjb21tYW5kIGFyZ3VtZW50cy4KMi4gKipNZXRhY2hhcmFjdGVyICYgRW52aXJvbm1lbnQgVmFy
-aWFibGUgSGFyZGVuaW5nKio6IE5ldXRyYWxpemVzIGNvbW1hbmQgY2hhaW5pbmcgZXZhc2lvbnMs
-IHJlZGlyZWN0aW9uIGJyZWFrb3V0cywgaW5kaXJlY3Qgc3Vic2hlbGxzIChgJCguLi4pYCwgYmFj
-a3RpY2tzLCBgPCguLi4pYCksIGFuZCB1bmV4cGFuZGVkIGVudmlyb25tZW50IHZhcmlhYmxlIGlu
-amVjdGlvbiAoYCRWQVJgLCBgJHtWQVJ9YCwgYCVWQVIlYCkuCjMuICoqUmlzay1UaWVyIEF1dG8t
-Q2xhc3NpZmljYXRpb24qKjogQXV0b21hdGljYWxseSBpbmZlcnMgcmlzayBiYXNlZCBvbiBjb21t
-YW5kIGJpbmFyaWVzLCBmbGFncyAoZS5nLiBgc2VkIC1pYCksIGFuZCByZWRpcmVjdGlvbiBvcGVy
-YXRvcnMsIHJhdGNoZXRpbmcgdXB3YXJkIGlmIGFuIGFnZW50IGF0dGVtcHRzIHRvIHVuZGVyLXJl
-cG9ydCByaXNrLgo0LiAqKlNsaWRpbmctV2luZG93IFJhdGUgTGltaXRpbmcgJiBCdXJzdCBDb250
-cm9sKio6IEVuZm9yY2VzIG1heGltdW0gcmVxdWVzdHMgcGVyIG1pbnV0ZSwgbWFuZGF0b3J5IHF1
-aWVzY2VudCBjb29sZG93biBwZXJpb2RzIGFmdGVyIGRlc3RydWN0aXZlIGFjdGlvbnMgKFRpZXIg
-MyksIGFuZCBidXJzdCBlc2NhbGF0aW9uLgo1LiAqKkludGVyYWN0aXZlICYgTm9uLUludGVyYWN0
-aXZlIChgLS12ZXJpZnktb25seWApIE1vZGVzKio6IEhhbHRzIGZvciBvcGVyYXRvciBhdXRob3Jp
-emF0aW9uIChgW3kvTl1gKSBvbiBpbnRlcmFjdGl2ZSB0ZXJtaW5hbHMgb3IgcnVucyBoZWFkbGVz
-cyB3aXRoIHN0cnVjdHVyZWQgb3V0cHV0cyBpbiBDSS9hdXRvbWF0aW9uLgo2LiAqKkNyeXB0b2dy
-YXBoaWMgQXVkaXQgVHJhaWwgJiBGb3JlbnNpYyBUb29scyoqOiBBcHBlbmRzIFNIQS0yNTYgaGFz
-aC1jaGFpbmVkIEpTT05MIGxvZ3MsIHZlcmlmaWFibGUgdmlhIGB2ZXJpZnktYXVkaXRgIGFuZCBx
-dWVyeWFibGUgdmlhIGBxdWVyeS1hdWRpdGAuCjcuICoqTmF0aXZlIE1vZGVsIENvbnRleHQgUHJv
-dG9jb2wgKE1DUCkqKjogRXhwb3NlcyBgYWRtaXNzaW9uLWdhdGUtbWNwYCBmb3IgZGlyZWN0IGlu
-dGVncmF0aW9uIGludG8gQ2xhdWRlIERlc2t0b3AsIEN1cnNvciwgYW5kIENsaW5lLgoKUmVxdWly
-ZXMgUHl0aG9uIDMuOCsgd2l0aCB6ZXJvIHRoaXJkLXBhcnR5IGRlcGVuZGVuY2llcy4KCi0tLQoK
-IyMgSW5zdGFsbGF0aW9uCgpgYGBiYXNoCnBpcCBpbnN0YWxsIC0tdXBncmFkZSBhZG1pc3Npb24t
-Z2F0ZQpgYGAKCi0tLQoKIyMgQ29uZmlndXJhdGlvbiAoYGFkbWlzc2lvbl9nYXRlLnRvbWxgKQoK
-UGxhY2UgYGFkbWlzc2lvbl9nYXRlLnRvbWxgIGluIHlvdXIgd29ya2luZyBkaXJlY3Rvcnkgb3Ig
-cHJvdmlkZSBgLS1jb25maWcgPHBhdGg+YDoKCmBgYHRvbWwKW3BvbGljeV0KYmxvY2tlZF9wYXR0
-ZXJucyA9IFsKICAgICJybSAtcmYgLyIsCiAgICAiOigpeyA6fDpmIH07OiIsCiAgICAiL2Rldi9z
-ZCIsCiAgICAiPiAvZGV2L251bGwiLAogICAgIm1rZnMiLApdCnJlcXVpcmVfY29uZmlybSA9IHRy
-dWUKCltmaWxlc3lzdGVtXQphbGxvd2VkX3Jvb3RzID0gWwogICAgIi4vd29ya3NwYWNlIiwKICAg
-ICIuL3NjcmF0Y2giLApdCnByb3RlY3RlZF9wYXRocyA9IFsKICAgICIvZXRjIiwKICAgICIvYm9v
-dCIsCiAgICAiL3N5cyIsCiAgICAiL2RldiIsCiAgICAiL3Byb2MiLAogICAgIkM6XFxXaW5kb3dz
-IiwKICAgICJDOlxcV2luZG93c1xcU3lzdGVtMzIiLApdCgtsb2dnaW5nXQpsb2dfZmlsZSA9ICJh
-dWRpdF9sb2cuanNvbmwiCgpbcmF0ZV9saW1pdF0KZW5hYmxlZCA9IHRydWUKbWF4X3JlcXVlc3Rz
-X3Blcl9taW51dGUgPSAzMApidXJzdF90aHJlc2hvbGQgPSAxMAp0aWVyM19jb29sZG93bl9zZWNv
-bmRzID0gMy4wCmBgYAoKLS0tCgojIyBSaXNrLVRpZXIgQXV0by1DbGFzc2lmaWNhdGlvbgoKVGhl
-IGdhdGUgY2FsY3VsYXRlcyBhbiBlZmZlY3RpdmUgcmlzayB0aWVyIGZvciBldmVyeSBwcm9wb3Nh
-bC4gVGhlIGVuZ2luZSBvbmx5IHJhdGNoZXRzIHVwd2FyZDoKCioqVGllciAxIChSZWFkLU9ubHkg
-LyBJbnNwZWN0aW9uKSoqOiBgbHNgLCBgY2F0YCwgYGhlYWRgLCBgdGFpbGAsIGBncmVwYCwgYGZp
-bmRgLCBgc3RhdGAsIGBkaWZmYCwgYHdjYCwgYGZpbGVgLgoqKlRpZXIgMiAoTXV0YXRpbmcgLyBT
-dGF0ZSBNb2RpZmljYXRpb24pKio6IGB0b3VjaGAsIGBta2RpcmAsIGBjcGAsIGdnaXQgYWRkYCwg
-YHB5dGhvbmAsIGBub2RlYCwgb3IgYW55IGNvbW1hbmQgY29udGFpbmluZyByZWRpcmVjdGlvbiAo
-YD5gLCBgPj5gKS4KKipUaWVyIDMgKERlc3RydWN0aXZlIC8gQWRtaW5pc3RyYXRpdmUpKio6IGBy
-bWAsIGBtdmAsIGBjaG1vZGAsIGBjaG93bmAsIGBkZGAsIGB0cnVuY2F0ZWAsIGBraWxsYCwgYHNl
-ZCAtaWAsIGBta2ZzYCwgYHNocmVkYC4KCi0tLQoKIyMgQ29tbWFuZCBMaW5lIFRvb2xzCgojIyMg
-MS4gYGFkbWlzc2lvbi1nYXRlYCAoQ29yZSBHYXRla2VlcGVyKQoKYGBgYmFzaAojIEludGVyYWN0
-aXZlIGV4ZWN1dGlvbgpwcmludGYgJyVzXG4nICd7ImFjdGlvbl9pZCI6ICJzdGVwXzEiLCAiY29t
-bWFuZCI6ICJscyAtbGEiLCAidGFyZ2V0X3BhdGgiOiAiLi93b3Jrc3BhY2UiLCAicmlza190aWVy
-IjogMX0nIHwgYWRtaXNzaW9uLWdhdGUKCiMgSGVhZGxlc3MgLyBEcnktUnVuIHZlcmlmaWNhdGlv
-biBpbiBDSQpwcmludGYgJyVzXG4nICd7ImFjdGlvbl9pZCI6ICJjaV8xIiwgImNvbW1hbmQiOiAi
-cm0gZmlsZS50eHQiLCAidGFyZ2V0X3BhdGgiOiAiLi93b3Jrc3BhY2UiLCAicmlza190aWVyIjog
-MX0nIHwgYWRtaXNzaW9uLWdhdGUgLS12ZXJpZnktb25seQpgYGAKCiMjIyAyLiBAdmVyaWZ5LWF1
-ZGl0YCAoQ3J5cHRvZ3JhcGhpYyBWZXJpZmljYXRpb24pCgpWYWxpZGF0ZXMgU0hBLTI1NiBoYXNo
-IGNoYWlucyBhbmQgY2hlY2tzIHRhbXBlciByZXNpc3RhbmNlOgoKYGBgYmFzaAp2ZXJpZnktYXVk
-aXQgYXVkaXRfbG9nLmpzb25sCmBgYAoKIyMjIDMuIGBxdWVyeS1hdWRpdGAgKEZvcmVuc2ljIFF1
-ZXJ5ICYgUmVwbGF5KQoKRmlsdGVyIGhpc3RvcmljYWwgcmVjb3JkcyBvciBzaW11bGF0ZSBwYXN0
-IHByb3Bvc2FscyBhZ2FpbnN0IHVwZGF0ZWQgcG9saWNpZXM6CgpgYGBiYXNoCiMgRmlsdGVyIGJ5
-IHJpc2sgdGllciBvciBzdGF0dXMKcXVlcnktYXVkaXQgLS10aWVyIDMKcXVlcnktYXVkaXQgLS1z
-dGF0dXMgYmxvY2tlZAoKIyBGaWx0ZXIgYnkgdGltZSB3aW5kb3ctLXNpbmNlIDE1bQpxdWVyeS1h
-dWRpdCAtLXNpbmNlIDE1bQpxdWVyeS1hdWRpdCAtLXVudGlsIDVtCgojIFJlcGxheSBwYXN0IGFj
-dGlvbnMgYWdhaW5zdCBjdXJyZW50IGFkbWlzc2lvbl9nYXRlLnRvbWwgcnVsZXMKcXVlcnktYXVk
-aXQgLS1hY3Rpb24taWQgc3RlcF8xIC0tcmVwbGF5CmBgYAoKIyMjIDQuIGBhZG1pc3Npb24tZ2F0
-ZS1tY3BgIChNQ1AgQWRhcHRlcikKCkFkZCB0byB5b3VyIE1DUC1jb21wbGlhbnQgaG9zdCBjb25m
-aWc6CgpgYGBqc29uCnsKICAibWNwU2VydmVycyI6IHsKICAgICJhZG1pc3Npb25fZ2F0ZSI6IHsK
-ICAgICAgImNvbW1hbmQiOiAiYWRtaXNzaW9uLWdhdGUtbWNwIiwKICAgICAgImFyZ3MiOiBbXQog
-ICAgfQogIH0KfQpgYGAKCi0tLQoKIyMgU2VjdXJpdHkgTW9kZWwgJiBLbm93biBMaW1pdGF0aW9u
-cwoKMS4gKipIZXVyaXN0aWMgUGFyc2luZyB2cy4gRnVsbCBBU1QqKjogYGFkbWlzc2lvbi1nYXRl
-YCB0b2tlbml6ZXMgdmlhIGBzaGxleGAgYW5kIHJlZ2V4IGNoZWNrcyByYXRoZXIgdGhhbiBhIGNv
-bXBsZXRlIEJhc2ggQVNTIHBhcnNlci4gV2hpbGUgbWV0YWNoYXJhY3RlcnMgKGAkKClgLCBiYWNr
-dGlja3MsIHJlZGlyZWN0aW9ucykgYW5kIHVuZXhwYW5kZWQgZW52aXJvbm1lbnQgdmFyaWFibGVz
-IGFyZSBwcm9hY3RpdmVseSByZWplY3RlZCwgbmVzdGVkIHN1YnNoZWxsIGNvbWJpbmF0aW9ucyBz
-aG91bGQgYmUgYm91bmRlZCB2aWEgc3RyaWN0IHJvb3QgcG9saWNpZXMgYW5kIGJpbmFyeSB3aGl0
-ZWxpc3RpbmcuCjIuICoqWmVyby1EZXBlbmRlbmN5IFdpcmUgUHJvdG9jb2wqKjogVGhlIE1DUCBz
-ZXJ2ZXIgaW1wbGVtZW50cyBzdGFuZGFyZCBKU09OLVJQQyAyLjAgZGlyZWN0bHkgcmF0aGVyIHRo
-YW4gZGVwZW5kaW5nIG9uIHRoZSBvZmZpY2lhbCBNQ1AgU0RLLgozLiAqKkV4ZWN1dGlvbiBJc29s
-YXRpb24qKjogUG9saWN5IGNoZWNrcyBvY2N1ciBwcmlvciB0byBzdWJwcm9jZXNzIHNwYXduaW5n
-LiBGb3IgaGFyZCBtdWx0aS10ZW5hbnQgb3IgdW50cnVzdGVkLWNvZGUgaXNvbGF0aW9uLCBgYWRt
-aXNzaW9uLWdhdGVgIHNob3VsZCBiZSBydW4gaW5zaWRlIGFuIGVwaGVtZXJhbCBjb250YWluZXIg
-b3IgdW5wcml2aWxlZ2VkIG5hbWVzcGFjZS4KCi0tLQoKIyMgUnVubmluZyB0aGUgVGVzdCBTdWl0
-ZQoKYGBgYmFzaApQWVRIT05QQVRHPXNyYyBweXRob24zIC1tIHVuaXR0ZXN0IGRpc2NvdmVyIC1z
-IHRlc3RzCmBgYAoKLS0tCgojIyBMaWNlbnNlCgpbTUlUKShMSUNFTlNFKQo=
-EOF
+# admission-gate
+
+[![CI](https://github.com/ak-skwaa-mahawk/admission-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/ak-skwaa-mahawk/admission-gate)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/admission-gate)](https://pypi.org/project/admission-gate/)
+
+A zero-dependency, deterministic admission security kernel and cryptographic audit logging engine for autonomous CLI agents.
+
+When autonomous scripts or LLMs execute commands in a subshell, developers face two extremes: fully autonomous execution that risks destructive operations, or prompt fatigue from micro-approving benign steps. `admission-gate` sits directly between the agent and your shell:
+
+1. **Deterministic Security Kernel**: Enforces sandbox jails, blocks hazardous tokens, and canonicalizes paths (`os.path.realpath`) across all command arguments.
+2. **Metacharacter & Environment Variable Hardening**: Neutralizes command chaining evasions, redirection breakouts, indirect subshells (`$(...)`, backticks, `<(...)`), and unexpanded environment variable injection (`$VAR`, `${VAR}`, `%VAR%`).
+3. **Risk-Tier Auto-Classification**: Automatically infers risk based on command binaries, flags (e.g. `sed -i`), and redirection operators, ratcheting upward if an agent attempts to under-report risk.
+4. **Sliding-Window Rate Limiting & Burst Control**: Enforces maximum requests per minute, mandatory quiescent cooldown periods after destructive actions (Tier 3), and burst escalation.
+5. **Interactive & Non-Interactive (`--verify-only`) Modes**: Halts for operator authorization (`[y/N]`) on interactive terminals or runs headless with structured outputs in CI/automation.
+6. **Cryptographic Audit Trail & Forensic Tools**: Appends SHA-256 hash-chained JSONL logs, verifiable via `verify-audit` and queryable via `query-audit`.
+7. **Native Model Context Protocol (MCP)**: Exposes `admission-gate-mcp` for direct integration into Claude Desktop, Cursor, and Cline.
+
+Requires Python 3.8+ with zero third-party dependencies.
+
+---
+
+## Installation
+
+```bash
+pip install --upgrade admission-gate
+```
+
+---
+
+## Configuration (`admission_gate.toml`)
+
+Place `admission_gate.toml` in your working directory or provide `--config <path>`:
+
+```toml
+[policy]
+blocked_patterns = [
+    "rm -rf /",
+    ":(){ :|:f };:",
+    "/dev/sd",
+    "> /dev/null",
+    "mkfs",
+]
+require_confirm = true
+
+[filesystem]
+allowed_roots = [
+    "./workspace",
+    "./scratch",
+]
+protected_paths = [
+    "/etc",
+    "/boot",
+    "/sys",
+    "/dev",
+    "/proc",
+    "C:\\Windows",
+    "C:\\Windows\\System32",
+]
+logging]
+log_file = "audit_log.jsonl"
+
+[rate_limit]
+enabled = true
+max_requests_per_minute = 30
+burst_threshold = 10
+tier3_cooldown_seconds = 3.0
+```
+
+---
+
+## Risk-Tier Auto-Classification
+
+The gate calculates an effective risk tier for every proposal. The engine only ratchets upward:
+
+**Tier 1 (Read-Only / Inspection)**: `ls`, `cat`, `head`, `tail`, `grep`, `find`, `stat`, `diff`, `wc`, `file`.
+**Tier 2 (Mutating / State Modification)**: `touch`, `mkdir`, `cp`, ggit add`, `python`, `node`, or any command containing redirection (`>`, `>>`).
+**Tier 3 (Destructive / Administrative)**: `rm`, `mv`, `chmod`, `chown`, `dd`, `truncate`, `kill`, `sed -i`, `mkfs`, `shred`.
+
+---
+
+## Command Line Tools
+
+### 1. `admission-gate` (Core Gatekeeper)
+
+```bash
+# Interactive execution
+printf '%s\n' '{"action_id": "step_1", "command": "ls -la", "target_path": "./workspace", "risk_tier": 1}' | admission-gate
+
+# Headless / Dry-Run verification in CI
+printf '%s\n' '{"action_id": "ci_1", "command": "rm file.txt", "target_path": "./workspace", "risk_tier": 1}' | admission-gate --verify-only
+```
+
+### 2. @verify-audit` (Cryptographic Verification)
+
+Validates SHA-256 hash chains and checks tamper resistance:
+
+```bash
+verify-audit audit_log.jsonl
+```
+
+### 3. `query-audit` (Forensic Query & Replay)
+
+Filter historical records or simulate past proposals against updated policies:
+
+```bash
+# Filter by risk tier or status
+query-audit --tier 3
+query-audit --status blocked
+
+# Filter by time window--since 15m
+query-audit --since 15m
+query-audit --until 5m
+
+# Replay past actions against current admission_gate.toml rules
+query-audit --action-id step_1 --replay
+```
+
+### 4. `admission-gate-mcp` (MCP Adapter)
+
+Add to your MCP-compliant host config:
+
+```json
+{
+  "mcpServers": {
+    "admission_gate": {
+      "command": "admission-gate-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+---
+
+## Security Model & Known Limitations
+
+1. **Heuristic Parsing vs. Full AST**: `admission-gate` tokenizes via `shlex` and regex checks rather than a complete Bash ASS parser. While metacharacters (`$()`, backticks, redirections) and unexpanded environment variables are proactively rejected, nested subshell combinations should be bounded via strict root policies and binary whitelisting.
+2. **Zero-Dependency Wire Protocol**: The MCP server implements standard JSON-RPC 2.0 directly rather than depending on the official MCP SDK.
+3. **Execution Isolation**: Policy checks occur prior to subprocess spawning. For hard multi-tenant or untrusted-code isolation, `admission-gate` should be run inside an ephemeral container or unprivileged namespace.
+
+---
+
+## Running the Test Suite
+
+```bash
+PYTHONPATG=src python3 -m unittest discover -s tests
+```
+
+---
+
+## License
+
+[MIT)(LICENSE)
