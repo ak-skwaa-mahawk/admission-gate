@@ -657,7 +657,130 @@ def gated_shell(
     return True, output, return_code
 
 
+
+def handle_subcommands() -> bool:
+    if len(sys.argv) < 2 or sys.argv[1] not in ("init", "check", "exec"):
+        return False
+
+    subcommand = sys.argv[1]
+    default_sock = "/data/data/com.termux/files/home/networkXG/ens_legis.sock"
+    default_charter = "charter.json"
+
+    default_template = {
+        "charter_version": "1.0",
+        "entity_id": "SOVEREIGN_AGENT_ALPHA",
+        "authorized_actions": ["SHELL_READ", "MESH_TELEMETRY_LOG", "SOLITON_BLOOM_CYCLE"],
+        "allowed_resource_patterns": [
+            r"^/data/data/com.termux/files/home/networkXG/.*",
+            r"^\./.*"
+        ],
+        "prohibited_resource_patterns": [
+            r"^/sys/.*",
+            r"^/proc/.*",
+            r"^/etc/.*"
+        ]
+    }
+
+    if subcommand == "init":
+        p = argparse.ArgumentParser(prog="admission-gate init")
+        p.add_argument("--path", default=default_charter)
+        args = p.parse_args(sys.argv[2:])
+        target = os.path.abspath(args.path)
+        if os.path.exists(target):
+            print(f"[!] Charter already exists at {target}")
+            sys.exit(1)
+        with open(target, "w") as f:
+            json.dump(default_template, f, indent=2)
+        print(f"[+] Scaffolded charter written to {target}")
+        sys.exit(0)
+
+    p = argparse.ArgumentParser(prog=f"admission-gate {subcommand}")
+    p.add_argument("--action", default="SHELL_READ" if subcommand == "check" else "SHELL_EXEC")
+    p.add_argument("--resource", required=True)
+    p.add_argument("--principal", default="AGENT_CLI")
+    p.add_argument("--sock", default=default_sock)
+    p.add_argument("--charter", default=default_charter)
+    if subcommand == "exec":
+        p.add_argument("cmd", nargs=argparse.REMAINDER)
+
+    args = p.parse_args(sys.argv[2:])
+
+    # 1. ActionEnvelope construction
+    cmd_list = getattr(args, "cmd", [])
+    if cmd_list and cmd_list[0] == "--":
+        cmd_list = cmd_list[1:]
+
+    from admission_gate.schemas import ActionEnvelope, AuthorityVerdict
+    envelope = ActionEnvelope(
+        action_type=args.action,
+        principal=args.principal,
+        target_resource=args.resource,
+        payload={"cmd": cmd_list}
+    )
+
+    # 2. Evaluation: UDS if live, fallback to local charter
+    verdict = None
+    if os.path.exists(args.sock):
+        try:
+            import socket
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(2.0)
+                sock.connect(args.sock)
+                sock.sendall(envelope.to_json().encode("utf-8"))
+                raw = sock.recv(4096)
+                verdict = AuthorityVerdict.from_dict(json.loads(raw.decode("utf-8")))
+        except Exception as e:
+            sys.stderr.write(f"[WARNING] Socket query failed ({e}), falling back to charter file.\n")
+
+    if verdict is None:
+        if not os.path.exists(args.charter):
+            sys.stderr.write(f"[FATAL] Neither live socket ({args.sock}) nor charter ({args.charter}) available.\n")
+            sys.exit(1)
+        
+        with open(args.charter, "r") as f:
+            raw_c = f.read()
+            c_data = json.loads(raw_c)
+        c_hash = hashlib.sha256(raw_c.encode("utf-8")).hexdigest()
+
+        # Prohibited check
+        veto_reason = None
+        for pat in c_data.get("prohibited_resource_patterns", []):
+            if re.match(pat, envelope.target_resource):
+                veto_reason = f"ULTRA_VIRES_BREACH: Access to prohibited resource \x27{envelope.target_resource}\x27 (matches \x27{pat}\x27)"
+                break
+        
+        if not veto_reason and envelope.action_type not in c_data.get("authorized_actions", []):
+            veto_reason = f"ULTRA_VIRES_BREACH: Action \x27{envelope.action_type}\x27 not authorized under charter."
+
+        if veto_reason:
+            verdict = AuthorityVerdict(allowed=False, regime="ENS_LEGIS", charter_hash=c_hash, error=veto_reason)
+        else:
+            verdict = AuthorityVerdict(allowed=True, regime="ENS_LEGIS", charter_hash=c_hash, attestation=f"Action \x27{envelope.action_type}\x27 authorized.")
+
+    if not verdict.allowed:
+        sys.stderr.write(f"\n[ULTRA_VIRES_BREACH] Execution Vetoed\n")
+        sys.stderr.write(f"Charter Hash: {verdict.charter_hash}\n")
+        sys.stderr.write(f"Error: {verdict.error}\n\n")
+        sys.exit(126)
+
+    if subcommand == "check":
+        print(verdict.to_json())
+        sys.exit(0)
+
+    # exec subcommand
+    if not cmd_list:
+        sys.stderr.write("[ERROR] No command specified after --\n")
+        sys.exit(1)
+
+    sys.stderr.write(f"[INTRA_VIRES_CONFIRMED] Charter: {verdict.charter_hash[:8]} | Executing: {chr(32).join(cmd_list)}\n")
+    res = subprocess.run(cmd_list)
+    sys.exit(res.returncode)
+
+
 def main():
+    if handle_subcommands():
+        return
+
     parser = argparse.ArgumentParser(
         description="Deterministic admission gate for CLI agent actions."
     )

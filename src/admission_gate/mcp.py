@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from admission_gate.schemas import ActionEnvelope, AuthorityVerdict
 
