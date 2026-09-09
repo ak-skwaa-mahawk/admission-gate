@@ -1,175 +1,246 @@
 #!/usr/bin/env python3
 """
-admission_gate.mcp - Zero-dependency Model Context Protocol (MCP) server.
-Exposes admission-gate protected shell execution over JSON-RPC stdio.
+admission_gate.mcp - Stdio Model Context Protocol (MCP) server.
+Routes agent tool calls through out-of-band statutory charter verification.
 """
 
 import json
+import os
+import subprocess
 import sys
-import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from admission_gate.config import GateConfig, find_default_config
-from admission_gate.gate import ActionProposal, gated_shell
+from admission_gate.schemas import ActionEnvelope, AuthorityVerdict
 
 PROTOCOL_VERSION = "2024-11-05"
+DEFAULT_SOCK = "/data/data/com.termux/files/home/networkXG/ens_legis.sock"
+DEFAULT_CHARTER = "charter.json"
 
-TOOL_DEFINITION = {
-    "name": "gated_bash",
-    "description": (
-        "Execute a shell command through the admission-gate security kernel. "
-        "Commands are subjected to deterministic path canonicalization, sandbox jail checks, "
-        "dangerous pattern blocking, human authorization (if required), and append-only cryptographic audit logging."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "command": {
-                "type": "string",
-                "description": "The exact shell command line to execute.",
+TOOLS = [
+    {
+        "name": "gated_exec",
+        "description": (
+            "Execute a shell command with strict out-of-band statutory charter enforcement. "
+            "All invocations are vetted against the immutable charter before process execution."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Shell command line to execute.",
+                },
+                "target_resource": {
+                    "type": "string",
+                    "description": "File or system resource targeted by this command.",
+                },
+                "action_type": {
+                    "type": "string",
+                    "description": "Action category (e.g. SHELL_READ, SHELL_EXEC, MESH_TELEMETRY_LOG).",
+                    "default": "SHELL_EXEC",
+                },
             },
-            "target_path": {
-                "type": "string",
-                "description": "The primary file or directory path affected by this action.",
-            },
-            "risk_tier": {
-                "type": "integer",
-                "enum": [1, 2, 3],
-                "description": "Risk assessment level: 1 (read/low impact), 2 (create/modify), 3 (destructive/critical).",
-                "default": 1,
-            },
+            "required": ["command", "target_resource"],
         },
-        "required": ["command", "target_path"],
     },
-}
+    {
+        "name": "gate_check",
+        "description": "Dry-run verification of an action against the statutory charter without executing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action_type": {"type": "string"},
+                "target_resource": {"type": "string"},
+            },
+            "required": ["action_type", "target_resource"],
+        },
+    },
+]
 
+def query_gate(envelope: ActionEnvelope) -> AuthorityVerdict:
+    sock_path = os.environ.get("ADMISSION_GATE_SOCK", DEFAULT_SOCK)
+    charter_path = os.environ.get("ADMISSION_GATE_CHARTER", DEFAULT_CHARTER)
 
-class MCPServer:
-    def __init__(self, config: Optional[GateConfig] = None):
-        self.config = config or GateConfig()
+    if os.path.exists(sock_path):
+        import socket
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(2.0)
+                sock.connect(sock_path)
+                sock.sendall(envelope.to_json().encode("utf-8"))
+                raw = sock.recv(4096)
+                return AuthorityVerdict.from_dict(json.loads(raw.decode("utf-8")))
+        except Exception:
+            pass
 
-    def handle_request(self, req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        msg_id = req.get("id")
-        method = req.get("method")
-        params = req.get("params", {})
+    if os.path.exists(charter_path):
+        import hashlib
+        import re
+        with open(charter_path, "r") as f:
+            raw_c = f.read()
+            c_data = json.loads(raw_c)
+        c_hash = hashlib.sha256(raw_c.encode("utf-8")).hexdigest()
 
-        if method == "initialize":
+        for pat in c_data.get("prohibited_resource_patterns", []):
+            if re.match(pat, envelope.target_resource):
+                return AuthorityVerdict(
+                    allowed=False,
+                    regime="ENS_LEGIS",
+                    charter_hash=c_hash,
+                    error=f"ULTRA_VIRES_BREACH: Access to '{envelope.target_resource}' prohibited by '{pat}'",
+                )
+
+        if envelope.action_type not in c_data.get("authorized_actions", []):
+            return AuthorityVerdict(
+                allowed=False,
+                regime="ENS_LEGIS",
+                charter_hash=c_hash,
+                error=f"ULTRA_VIRES_BREACH: Action '{envelope.action_type}' not authorized.",
+            )
+
+        return AuthorityVerdict(
+            allowed=True,
+            regime="ENS_LEGIS",
+            charter_hash=c_hash,
+            attestation=f"Action '{envelope.action_type}' authorized.",
+        )
+
+    return AuthorityVerdict(
+        allowed=False,
+        regime="OFFLINE",
+        charter_hash="",
+        error="No active UDS gate or charter file available.",
+    )
+
+def handle_rpc(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    msg_id = msg.get("id")
+    method = msg.get("method")
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "admission-gate-mcp", "version": "0.4.1"},
+            },
+        }
+
+    if method == "notifications/initialized":
+        return None
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {"tools": TOOLS},
+        }
+
+    if method == "tools/call":
+        params = msg.get("params", {})
+        tool_name = params.get("name")
+        args = params.get("arguments", {})
+
+        if tool_name == "gate_check":
+            envelope = ActionEnvelope(
+                action_type=args.get("action_type", "SHELL_READ"),
+                principal="MCP_AGENT",
+                target_resource=args.get("target_resource", ""),
+            )
+            verdict = query_gate(envelope)
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
-                    "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {
-                        "name": "admission-gate",
-                        "version": "0.3.0",
-                    },
+                    "content": [{"type": "text", "text": verdict.to_json()}],
+                    "isError": not verdict.allowed,
                 },
             }
 
-        elif method == "notifications/initialized":
-            return None
+        if tool_name == "gated_exec":
+            command = args.get("command", "")
+            target_resource = args.get("target_resource", "")
+            action_type = args.get("action_type", "SHELL_EXEC")
 
-        elif method == "ping":
-            return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
-
-        elif method == "tools/list":
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {"tools": [TOOL_DEFINITION]},
-            }
-
-        elif method == "tools/call":
-            tool_name = params.get("name")
-            arguments = params.get("arguments", {})
-
-            if tool_name != "gated_bash":
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
-                }
-
-            cmd = arguments.get("command", "")
-            target = arguments.get("target_path", ".")
-            risk = int(arguments.get("risk_tier", 1))
-
-            proposal = ActionProposal(
-                action_id=f"mcp_{uuid.uuid4().hex[:8]}",
-                command=cmd,
-                target_path=target,
-                risk_tier=risk,
+            envelope = ActionEnvelope(
+                action_type=action_type,
+                principal="MCP_AGENT",
+                target_resource=target_resource,
+                payload={"command": command},
             )
+            verdict = query_gate(envelope)
 
-            executed, output, exit_code = gated_shell(proposal, config=self.config)
-
-            if not executed:
+            if not verdict.allowed:
                 return {
                     "jsonrpc": "2.0",
                     "id": msg_id,
                     "result": {
-                        "isError": True,
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"[Admission Gate Refusal]: {output}",
+                                "text": (
+                                    f"[ULTRA_VIRES_BREACH] Execution Vetoed\n"
+                                    f"Charter Hash: {verdict.charter_hash}\n"
+                                    f"Error: {verdict.error}"
+                                ),
                             }
                         ],
+                        "isError": True,
                     },
                 }
 
+            proc = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            output = proc.stdout if proc.returncode == 0 else proc.stderr
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
-                    "isError": exit_code != 0,
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Exit Code: {exit_code}\nOutput:\n{output}",
+                            "text": (
+                                f"[INTRA_VIRES_CONFIRMED] Charter: {verdict.charter_hash[:8]}\n"
+                                f"Exit: {proc.returncode}\n\n{output}"
+                            ),
                         }
                     ],
+                    "isError": proc.returncode != 0,
                 },
             }
 
-        elif msg_id is not None:
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "error": {"code": -32601, "message": f"Method not supported: {method}"},
-            }
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+        }
 
-        return None
-
-    def run(self):
-        # Stdio JSON-RPC event loop
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-                response = self.handle_request(msg)
-                if response is not None:
-                    sys.stdout.write(json.dumps(response) + "\n")
-                    sys.stdout.flush()
-            except Exception as e:
-                err_resp = {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
-                }
-                sys.stdout.write(json.dumps(err_resp) + "\n")
-                sys.stdout.flush()
-
+    return None
 
 def main():
-    cfg_file = find_default_config()
-    cfg = GateConfig.load_from_file(cfg_file) if cfg_file else GateConfig()
-    server = MCPServer(config=cfg)
-    server.run()
-
+    for line in sys.stdin:
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            req = json.loads(raw)
+            resp = handle_rpc(req)
+            if resp is not None:
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+        except Exception as e:
+            err_resp = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": str(e)},
+            }
+            sys.stdout.write(json.dumps(err_resp) + "\n")
+            sys.stdout.flush()
 
 if __name__ == "__main__":
     main()
