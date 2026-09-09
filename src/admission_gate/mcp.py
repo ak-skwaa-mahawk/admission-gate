@@ -244,3 +244,24 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class MCPServer:
+    """Compatibility adapter for legacy test harness and in-process callers."""
+
+    def __init__(self, config: Optional[Any] = None):
+        self.config = config
+
+    def handle_request(self, msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        # Map legacy gated_bash tool calls to gated_exec
+        if msg.get("method") == "tools/call":
+            params = msg.get("params", {})
+            if params.get("name") == "gated_bash":
+                args = params.get("arguments", {})
+                params["name"] = "gated_exec"
+                params["arguments"] = {
+                    "command": args.get("command", ""),
+                    "target_resource": args.get("target_path", args.get("target_resource", "")),
+                    "action_type": "SHELL_EXEC",
+                }
+        return handle_rpc(msg)
